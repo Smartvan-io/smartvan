@@ -1,7 +1,7 @@
 name: Smartvan-local
 version: "1.0.0"
 slug: smartvan_local
-description: Installs smartvan.io custom cards and other integrations trsting
+description: Manage your smartvan.io devices and custom cards
 startup: application
 arch:
   - armhf
@@ -18,4 +18,3 @@ full_access: true
 map:
   - config:rw
   - "homeassistant:rw"
-# image: "ghcr.io/Smartvan-io/smartvan/{arch}"
