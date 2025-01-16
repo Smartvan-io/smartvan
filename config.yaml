@@ -1,6 +1,6 @@
-name: Smartvan-local
+name: Smartvan.io
 version: "1.0.0"
-slug: smartvan_local
+slug: smartvanio
 description: Manage your smartvan.io devices and custom cards
 startup: application
 arch:

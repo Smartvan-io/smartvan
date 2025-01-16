@@ -14,19 +14,9 @@ LOVELACE_FILE="/config/.storage/lovelace_resources"
 
 # Define the cards internally
 CARDS=(
-  '{"url": "https://cdn.jsdelivr.net/gh/Smartvan-io/inclinometer-card@v2.0.0/index.js", "name": "inclinometer"}'
+  '{"url": "https://cdn.jsdelivr.net/gh/Smartvan-io/inclinometer-card@v2.0.0/index.js", "name": "inclinometer", "id": "12e1b1091fdf41f2a7843a838520313d" }'
 )
 
-# Function to generate a UUID
-generate_uuid() {
-  # If uuidgen is available
-  if command -v uuidgen > /dev/null; then
-    uuidgen
-  else
-    # Generate a UUID manually (fallback)
-    cat /proc/sys/kernel/random/uuid
-  fi
-}
 
 
 # Process each card
@@ -36,17 +26,12 @@ bashio::log.info "$ADDON_TOKEN"
 for CARD in "${CARDS[@]}"; do
     CARD_URL=$(echo "$CARD" | jq -r '.url')
     CARD_NAME=$(echo "$CARD" | jq -r '.name')
+    CARD_UUID=$(echo "$CARD" | jq -r '.id')
     CARD_FILE_NAME=$(basename "$CARD_URL")
     CARD_LOCAL_PATH="$WWW_PATH/$CARD_NAME/$CARD_FILE_NAME"
     CARD_LOCAL_DIR="$WWW_PATH/$CARD_NAME"
     RESOURCE_DIR="$RESOURCE_URL_BASE/$CARD_NAME/$CARD_FILE_NAME"
-    CARD_UUID=$(generate_uuid) 
 
-    # bashio::log.info "CARD_URL $CARD_URL"
-    # bashio::log.info "CARD_NAME $CARD_NAME"
-    # bashio::log.info "CARD_FILENAME $CARD_FILE_NAME"
-    # bashio::log.info "CARD_LOCAL_PATH $CARD_LOCAL_PATH"
-    # bashio::log.info "RESOURCE URL $RESOURCE_DIR"
     # Download the card
     bashio::log.info "Downloading $CARD_NAME from $CARD_URL... to $CARD_LOCAL_PATH"
     mkdir -p "$CARD_LOCAL_DIR"
@@ -62,8 +47,8 @@ for CARD in "${CARDS[@]}"; do
     bashio::log.info "Adding $CARD_NAME to Home Assistant resources..."
 
     # Check if the resource already exists
-    if jq -e --arg url "$RESOURCE_DIR" '.data.items[] | select(.url == $url)' "$LOVELACE_FILE" > /dev/null; then
-        echo "Resource $RESOURCE_DIR already exists in Lovelace configuration."
+    if jq -e --arg url "$RESOURCE_DIR" '.data.items[] | select(.id == $id)' "$LOVELACE_FILE" > /dev/null; then
+        echo "Resource $CARD_UUID already exists in Lovelace configuration."
     else
         # Add the resource to the file
         jq --arg url "$RESOURCE_DIR" --arg type "module" --arg id "$CARD_UUID" \
@@ -74,9 +59,5 @@ for CARD in "${CARDS[@]}"; do
 done
 
 bashio::log.info "All custom cards processed successfully."
-
-curl -s -X POST \
-    -H "Authorization: Bearer $ADDON_TOKEN" \
-    http://supervisor/core/restart
 
 
