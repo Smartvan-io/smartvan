@@ -1,6 +1,6 @@
 {
   "name": "Smartvan.io",
-  "version": "1.0.1-beta",
+  "version": "1.0.2-beta",
   "slug": "smartvanio",
   "description": "Smartvan Add-on with Next.js",
   "arch": ["amd64", "armv7", "aarch64", "armhf", "i386"],
