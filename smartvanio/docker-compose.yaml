@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  ha-addon-dev:
+    image: ghcr.io/home-assistant/devcontainer:2-addons
+    container_name: ha-addon-dev
+    privileged: true
+    ports:
+      - "7123:8123" # HA frontend
+      - "7357:4357" # API/debug or other service
+    volumes:
+      - .:/workspaces:rw
+      - ha-docker-lib:/var/lib/docker
+      - ha-supervisor:/mnt/supervisor
+    environment:
+      - GIT_EDITOR=code --wait
+      - WORKSPACE_DIRECTORY=/workspaces
+    stdin_open: true
+    tty: true
+    command: bash -c "bash devcontainer_bootstrap && zsh"
+
+volumes:
+  ha-docker-lib:
+  ha-supervisor:
+  - ./config:/config
+  - .:/workspaces

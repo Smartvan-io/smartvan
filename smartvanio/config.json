@@ -1,0 +1,32 @@
+{
+  "name": "Smartvan.io",
+  "version": "1.0.1-beta",
+  "slug": "smartvanio",
+  "description": "Smartvan Add-on with Next.js",
+  "arch": ["amd64", "armv7", "aarch64", "armhf", "i386"],
+  "startup": "application",
+  "boot": "auto",
+  "init": false,
+  "hassio_role": "admin",
+  "ingress": true,
+  "ingress_port": 3000,
+  "panel_icon": "mdi:earth",
+  "panel_title": "Smartvan.io",
+  "homeassistant_api": true,
+  "hassio_api": true,
+  "host_network": true,
+  "options": {
+    "dev_mode": false,
+    "ha_host": "homeassistant",
+    "ha_port": 8123
+  },
+  "schema": {
+    "dev_mode": "bool",
+    "ha_host": "str",
+    "ha_port": "int"
+  },
+  "ports": {
+    "3000/tcp": 3000
+  },
+  "map": ["config:rw", "addons:rw"]
+}
