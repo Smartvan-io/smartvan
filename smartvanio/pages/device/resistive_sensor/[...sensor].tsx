@@ -67,8 +67,6 @@ export default function Device() {
     name: `sensor_${sensor}_interpolation_points`,
   });
 
-  console.log(fields);
-
   const [device, setDevice] = useState<IDevice>({} as IDevice);
   const [entities, setEntities] = useState([]);
   const [entityStates, setEntityStates] = useState({});

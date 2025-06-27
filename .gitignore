@@ -41,6 +41,6 @@ yarn-error.log*
 next-env.d.ts
 
 config
+/data
 tmp
-data
 node_modules
