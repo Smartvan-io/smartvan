@@ -18,12 +18,15 @@ import {
 } from "@/shared/components/sidebar";
 import { StackedLayout } from "@/shared/components/stacked-layout";
 import { ChevronDownIcon } from "@heroicons/react/16/solid";
+import { usePathname } from "next/navigation";
 const navItems = [
-  { label: "Devices", url: "/" },
+  { label: "Home", url: "/" },
   { label: "Settings", url: "/settings" },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+
   return (
     <StackedLayout
       navbar={
@@ -31,7 +34,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <NavbarSpacer />
           <NavbarSection className="max-lg:hidden">
             {navItems.map(({ label, url }) => (
-              <NavbarItem key={label} href={url}>
+              <NavbarItem key={label} href={url} current={pathname === url}>
                 {label}
               </NavbarItem>
             ))}

@@ -27,6 +27,7 @@ import {
   fetchConfigEntityStates,
   fetchEntityStates,
 } from "@/shared/data/query";
+import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 
 const { publicRuntimeConfig } = getConfig();
 const { basePath, websocketPath } = publicRuntimeConfig;
@@ -60,7 +61,7 @@ export default function Device() {
   const { query } = useRouter();
 
   const [deviceId, sensor = 1] = query.sensor || [];
-  const { register, reset, control, handleSubmit } = useForm({});
+  const { reset, control, handleSubmit, getValues } = useForm({});
 
   const { fields, append, remove, replace } = useFieldArray({
     control,
@@ -71,6 +72,10 @@ export default function Device() {
   const [entities, setEntities] = useState([]);
   const [entityStates, setEntityStates] = useState({});
   const entitiesOnDevice = getEntities(entities);
+  const [interpolationPoints, setInterpolationPoints] = useState({
+    sensor_1_interpolation_points: null,
+    sensor_2_interpolation_points: null,
+  });
 
   const { sendJsonMessage } = useWebSocket(socketUrl, {
     onMessage: (event) => {
@@ -191,7 +196,7 @@ export default function Device() {
         {device.name}
       </Heading>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-12">
+      <form className="space-y-12">
         <Navbar className="bg-zinc-800 p-4 mt-auto sticky top-0">
           <NavbarSection>
             <NavbarItem
@@ -208,15 +213,15 @@ export default function Device() {
             </NavbarItem>
           </NavbarSection>
           <NavbarSpacer />
-          <NavbarSection className="max-lg:hidden">
-            <Button
-              type="submit"
-              color="indigo"
-              className="px-6 py-2 bg-blue-600 text-white rounded transition-colors"
-            >
-              Save
-            </Button>
-          </NavbarSection>
+          <ConfirmDialog
+            color="red"
+            triggerLabel="Factory reset"
+            text="This will reset the device to factory settings and will require you to add the device to HomeAssistant again!"
+            title="Are you sure?"
+            onConfirm={() => {
+              updateEntity(entitiesOnDevice.factory_reset.entity_id);
+            }}
+          />
         </Navbar>
 
         <div className="grid grid-cols-1 gap-x-8 gap-y-10 border-b border-zinc-800 pb-12 md:grid-cols-3">
@@ -238,18 +243,48 @@ export default function Device() {
           </div>
 
           <div className="col-span-2 max-w-128">
-            {/* <Field className="mb-4">
-              <Label>Name</Label>
-              <Input {...register(`config.sensor_${sensor}_name`)} />
-            </Field> */}
             <div className="grid grid-cols-2 gap-4 mb-4">
               <Field>
                 <Label>Min Resistance</Label>
-                <Input {...register(`sensor_${sensor}_min_resistance`)} />
+                <Controller
+                  control={control}
+                  name={`sensor_${sensor}_min_resistance`}
+                  render={({ field }) => (
+                    <Input
+                      {...field}
+                      onChange={(e) => {
+                        field.onChange(e);
+
+                        updateEntity(
+                          entitiesOnDevice[`sensor_${sensor}_min_resistance`]
+                            ?.entity_id,
+                          e.target.value
+                        );
+                      }}
+                    />
+                  )}
+                />
               </Field>
               <Field>
                 <Label>Max Resistance</Label>
-                <Input {...register(`sensor_${sensor}_max_resistance`)} />
+                <Controller
+                  control={control}
+                  name={`sensor_${sensor}_max_resistance`}
+                  render={({ field }) => (
+                    <Input
+                      {...field}
+                      onChange={(e) => {
+                        field.onChange(e);
+
+                        updateEntity(
+                          entitiesOnDevice[`sensor_${sensor}_max_resistance`]
+                            ?.entity_id,
+                          e.target.value
+                        );
+                      }}
+                    />
+                  )}
+                />
               </Field>
             </div>
           </div>
@@ -277,12 +312,30 @@ export default function Device() {
             {/* Interpolation Kind */}
             <Field className="mb-4">
               <Label>Interpolation kind</Label>
-              <Select {...register(`sensor_${sensor}_interpolation_kind`)}>
-                <option value="linear">Linear</option>
-                <option value="cubic">Cubic</option>
-                <option value="quadratic">Quadratic</option>
-                <option value="slinear">Slinear</option>
-              </Select>
+
+              <Controller
+                control={control}
+                name={`sensor_${sensor}_interpolation_kind`}
+                render={({ field }) => (
+                  <Select
+                    {...field}
+                    onChange={(e) => {
+                      field.onChange(e);
+
+                      updateEntity(
+                        entitiesOnDevice[`sensor_${sensor}_interpolation_kind`]
+                          ?.entity_id,
+                        e.target.value
+                      );
+                    }}
+                  >
+                    <option value="linear">Linear</option>
+                    <option value="cubic">Cubic</option>
+                    <option value="quadratic">Quadratic</option>
+                    <option value="slinear">Slinear</option>
+                  </Select>
+                )}
+              />
             </Field>
 
             {/* <Field className="mb-4">
@@ -312,12 +365,53 @@ export default function Device() {
                 <div className="text-right">
                   <Button
                     outline
-                    className="sm"
+                    className="sm mr-2"
                     onClick={() => {
-                      replace(presetInterpolationPoints);
+                      if (
+                        interpolationPoints[
+                          `sensor_${sensor}_interpolation_points`
+                        ]
+                      ) {
+                        replace(
+                          interpolationPoints[
+                            `sensor_${sensor}_interpolation_points`
+                          ]
+                        );
+                        setInterpolationPoints((old) => ({
+                          ...old,
+                          [`sensor_${sensor}_interpolation_points`]: null,
+                        }));
+                      } else {
+                        replace(presetInterpolationPoints);
+                        setInterpolationPoints((old) => ({
+                          ...old,
+                          [`sensor_${sensor}_interpolation_points`]: fields,
+                        }));
+                      }
                     }}
                   >
-                    Apply default values
+                    {interpolationPoints[
+                      `sensor_${sensor}_interpolation_points`
+                    ]
+                      ? "Revert"
+                      : "Apply default values"}
+                  </Button>
+                  <Button
+                    color="green"
+                    onClick={() => {
+                      updateEntity(
+                        entitiesOnDevice[
+                          `sensor_${sensor}_interpolation_points`
+                        ]?.entity_id,
+                        transformInterpolationPointsToString(
+                          getValues(
+                            `sensor_${sensor}_interpolation_points`
+                          ) as FormPoint[]
+                        )
+                      );
+                    }}
+                  >
+                    Save
                   </Button>
                 </div>
               </div>
@@ -339,6 +433,9 @@ export default function Device() {
                               step=".01"
                               type="number"
                               placeholder="Measured"
+                              onChange={(e) => {
+                                field.onChange(e);
+                              }}
                             />
                             {fieldState.error ? (
                               <p className="text-red-500 text-sm mt-2">
@@ -362,6 +459,9 @@ export default function Device() {
                               {...field}
                               step=".01"
                               type="number"
+                              onChange={(e) => {
+                                field.onChange(e);
+                              }}
                               placeholder="Mapped"
                             />
                             {fieldState.error ? (

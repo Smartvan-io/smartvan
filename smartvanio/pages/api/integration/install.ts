@@ -11,7 +11,6 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  console.log(__dirname);
   try {
     const { latestCompatibleVersion } = await getVersions();
     const { tag } = latestCompatibleVersion;
@@ -20,7 +19,7 @@ export default async function handler(
       if (err) {
         return res.status(500).json({ error: stderr });
       }
-      console.log(stdout);
+
       res.status(200).json({ currentVersion: latestCompatibleVersion });
     });
   } catch (e) {

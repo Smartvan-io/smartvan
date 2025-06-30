@@ -8,11 +8,11 @@ interface Tag {
 
 const versionPath = process.env.IS_HA
   ? "/config/.HA_VERSION"
-  : "./config/.HA_VERSION";
+  : "../config/.HA_VERSION";
 
 const manifestPath = process.env.IS_HA
   ? "/config/custom_components/smartvanio/manifest.json"
-  : "./config/custom_components/smartvanio/manifest.json";
+  : "../config/custom_components/smartvanio/manifest.json";
 
 const getCurrent = () => {
   try {
