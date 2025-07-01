@@ -13,7 +13,11 @@ import {
   SidebarSection,
 } from "@/shared/components/sidebar";
 import { StackedLayout } from "@/shared/components/stacked-layout";
+import getConfig from "next/config";
 import { usePathname } from "next/navigation";
+const { publicRuntimeConfig } = getConfig();
+const { basePath } = publicRuntimeConfig;
+
 const navItems = [
   { label: "Home", url: "/" },
   { label: "Custom Cards", url: "/custom-cards" },
@@ -21,8 +25,7 @@ const navItems = [
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/";
-
-  console.log(pathname);
+  const path = pathname === basePath ? "/" : pathname;
 
   return (
     <StackedLayout
@@ -31,7 +34,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <NavbarSpacer />
           <NavbarSection className="max-lg:hidden">
             {navItems.map(({ label, url }) => (
-              <NavbarItem key={label} href={url} current={pathname === url}>
+              <NavbarItem key={label} href={url} current={path === url}>
                 {label}
               </NavbarItem>
             ))}
