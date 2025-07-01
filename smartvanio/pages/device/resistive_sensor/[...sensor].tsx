@@ -61,7 +61,7 @@ export default function Device() {
   const { query } = useRouter();
 
   const [deviceId, sensor = 1] = query.sensor || [];
-  const { reset, control, handleSubmit, getValues } = useForm({});
+  const { reset, control, getValues } = useForm({});
 
   const { fields, append, remove, replace } = useFieldArray({
     control,
@@ -149,32 +149,6 @@ export default function Device() {
   }, [entities, device, sensor]);
 
   const states = getStates(entityStates, device);
-
-  const onSubmit = (model: Record<string, string | FormPoint>) => {
-    const values = Object.entries<unknown>(model);
-
-    const promises = values
-      .filter(([key]) => getDomain(key) !== "config")
-      .map((entry) => {
-        const [key, value] = entry;
-        const entity = entitiesOnDevice[key];
-
-        if (key.includes("interpolation_points")) {
-          return updateEntity(
-            entity.entity_id,
-            transformInterpolationPointsToString(value as FormPoint[])
-          );
-        }
-
-        return updateEntity(entity.entity_id, value as string);
-      });
-
-    if (model.config) {
-      promises.push(updateEntityInConfig(model.config, device));
-    }
-
-    return Promise.all(promises);
-  };
 
   if (!Object.keys(device).length) return <p>Loading device...</p>;
 

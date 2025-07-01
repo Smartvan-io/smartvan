@@ -1,6 +1,12 @@
 import { Button } from "../button";
 import { EyeIcon } from "@heroicons/react/24/outline";
 import { Entity, Device as IDevice, States } from "../../types";
+import {
+  DescriptionDetails,
+  DescriptionList,
+  DescriptionTerm,
+} from "../description-list";
+import { Text } from "../text";
 
 export const Device = ({
   device,
@@ -55,10 +61,12 @@ export const Device = ({
       </div>
       <dl className="-my-3 divide-y divide-zinc-100 px-6 py-4 text-sm/6 dark:divide-zinc-700">
         <div className="flex justify-between gap-x-4 py-3">
-          <dt className="text-zinc-500 dark:text-zinc-400">Entities</dt>
+          <dt className="text-zinc-500 dark:text-zinc-400">
+            <Text>Entities</Text>
+          </dt>
           <dd className="flex items-start gap-x-2">
             <div className="font-medium text-zinc-900 dark:text-white">
-              {arr.length}
+              <Text>{arr.length}</Text>
             </div>
           </dd>
         </div>

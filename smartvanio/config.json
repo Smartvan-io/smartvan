@@ -1,8 +1,8 @@
 {
   "name": "Smartvan.io",
-  "version": "1.0.2-beta",
+  "version": "1.0.3-beta",
   "slug": "smartvanio",
-  "description": "Smartvan Add-on with Next.js",
+  "description": "Smartvan.io Add-on - Manage all your SmartVan devices in one place!",
   "arch": ["amd64", "armv7", "aarch64", "armhf", "i386"],
   "startup": "application",
   "boot": "auto",

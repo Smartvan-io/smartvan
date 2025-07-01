@@ -126,17 +126,17 @@ export default function Home() {
 
   return (
     <>
-      <div className="mt-8 grid grid-cols-3 gap-x-6">
-        <div>
+      <div className="mt-8 md:grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6">
+        <div className="sm:col-span-1">
           <IntegrationCard />
         </div>
-        <div className="col-span-2">
+        <div className="sm:col-span-1 lg:col-span-2">
           {discovered.length ? (
             <div className="mb-8 pb-8 border-b border-b-zinc-700">
               <Heading className="mb-4">Discovered Devices</Heading>
               <ul
                 role="list"
-                className="grid grid-cols-2 gap-x-6 gap-y-8  xl:gap-x-8"
+                className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-8 xl:gap-x-8"
               >
                 {discovered.map((device) => (
                   <DiscoveredDeviceCard
@@ -171,7 +171,7 @@ export default function Home() {
             <Heading className="mb-4">Installed Devices</Heading>
             <ul
               role="list"
-              className="grid grid-cols-2 gap-x-6 gap-y-8  xl:gap-x-8"
+              className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-8 xl:gap-x-8"
             >
               {devices.map((device) => (
                 <li key={device.id}>

@@ -12,6 +12,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "../dialog";
+import { Text } from "../text";
 
 const { publicRuntimeConfig } = getConfig();
 const { basePath } = publicRuntimeConfig;
@@ -182,15 +183,17 @@ export const IntegrationCard = () => {
 
   return (
     <div className="rounded-xl border border-zinc-200 dark:border-zinc-700">
-      <Heading className="p-6">Integration</Heading>
-      <div className="flex justify-center">
-        <Image
-          width={256}
-          height={256}
-          alt="smartvan.io"
-          src="https://brands.home-assistant.io/smartvanio/dark_icon.png"
-          className="size-24 margin-auto flex-none rounded-lg bg-white object-cover ring-1 ring-zinc-900/10 dark:bg-zinc-900 dark:ring-white/10"
-        />
+      <div className="flex md:block justify-between">
+        <Heading className="p-6">Integration</Heading>
+        <div className="flex justify-center  p-6 md:p-0">
+          <Image
+            width={256}
+            height={256}
+            alt="smartvan.io"
+            src="https://brands.home-assistant.io/smartvanio/dark_icon.png"
+            className="size-6 md:size-24 margin-auto flex-none rounded-lg bg-white object-cover ring-1 ring-zinc-900/10 dark:bg-zinc-900 dark:ring-white/10"
+          />
+        </div>
       </div>
       {list.length ? (
         <dl className="-my-3 divide-y divide-zinc-100 px-6 py-4 text-sm/6 dark:divide-zinc-700">
@@ -199,7 +202,7 @@ export const IntegrationCard = () => {
               <dt className="text-zinc-500 dark:text-zinc-400">
                 <div>{item.name}</div>
                 {item.subtext && item.subtext !== null ? (
-                  <div className="text-xs text-zinc-100">({item.subtext})</div>
+                  <Text className="text-xs">({item.subtext})</Text>
                 ) : null}
               </dt>
               <dd className="flex items-start gap-x-2">
