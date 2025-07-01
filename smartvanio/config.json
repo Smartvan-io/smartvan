@@ -1,6 +1,6 @@
 {
   "name": "Smartvan.io",
-  "version": "1.0.6-beta",
+  "version": "1.0.7-beta",
   "slug": "smartvanio",
   "description": "Smartvan.io Add-on - Manage all your SmartVan devices in one place!",
   "arch": ["amd64", "armv7", "aarch64", "armhf", "i386"],
