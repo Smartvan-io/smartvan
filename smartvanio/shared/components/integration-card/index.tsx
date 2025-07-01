@@ -183,15 +183,15 @@ export const IntegrationCard = () => {
 
   return (
     <div className="rounded-xl border border-zinc-200 dark:border-zinc-700">
-      <div className="flex md:block justify-between">
+      <div className="flex justify-between">
         <Heading className="p-6">Integration</Heading>
-        <div className="flex justify-center  p-6 md:p-0">
+        <div className="flex justify-center p-6">
           <Image
             width={256}
             height={256}
             alt="smartvan.io"
             src="https://brands.home-assistant.io/smartvanio/dark_icon.png"
-            className="size-6 md:size-24 margin-auto flex-none rounded-lg bg-white object-cover ring-1 ring-zinc-900/10 dark:bg-zinc-900 dark:ring-white/10"
+            className="size-6 margin-auto flex-none rounded-lg bg-white object-cover ring-1 ring-zinc-900/10 dark:bg-zinc-900 dark:ring-white/10"
           />
         </div>
       </div>
