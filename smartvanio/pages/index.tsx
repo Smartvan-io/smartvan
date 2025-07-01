@@ -76,7 +76,7 @@ export default function Home() {
           type: "config_entries/flow/progress",
         });
 
-        const deviceIds = devices.map((device) => device.id);
+        const deviceIds = devices.result.map((device) => device.id);
 
         setEntities(
           msg.result.filter((entity) => deviceIds.includes(entity.device_id))
