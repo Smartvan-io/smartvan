@@ -8,7 +8,6 @@ import { DiscoveredDevice, Entity, Device as IDevice } from "../shared/types";
 import { IntegrationCard } from "@/shared/components/integration-card";
 import { Device } from "@/shared/components/device-card";
 import { DiscoveredDeviceCard } from "@/shared/components/discovered-device-card";
-import { Alert } from "@/shared/components/alert";
 import { InformationCircleIcon } from "@heroicons/react/24/outline";
 
 const { publicRuntimeConfig } = getConfig();
@@ -26,7 +25,9 @@ enum Message {
 const waitFor = (time: number) => new Promise((res) => setTimeout(res, time));
 
 export default function Home() {
-  const [devices, setDevices] = useState<IDevice[]>([]);
+  const [devices, setDevices] = useState<{ result: IDevice[]; status: string }>(
+    { result: [], status: "" }
+  );
   const [discovered, setDiscovered] = useState<DiscoveredDevice[]>([]);
   const [entities, setEntities] = useState<Entity[]>([]);
   const [states, setStates] = useState({});
@@ -50,11 +51,12 @@ export default function Home() {
           type: "config/entity_registry/list",
         });
 
-        setDevices(
-          msg.result.filter(
+        setDevices({
+          result: msg.result.filter(
             (device: IDevice) => device.manufacturer === "smartvanio"
-          )
-        );
+          ),
+          status: "loaded",
+        });
       }
 
       if (msg.type === "result" && msg.id === Message.entries) {
@@ -120,7 +122,7 @@ export default function Home() {
     },
   });
 
-  const smartvanDeviceIds = devices.map((device) => device.id);
+  const smartvanDeviceIds = devices.result.map((device) => device.id);
 
   const smartvanEntities = entities.filter((entity) =>
     smartvanDeviceIds.includes(entity.device_id)
@@ -172,29 +174,31 @@ export default function Home() {
           <div>
             <Heading className="mb-4">Installed Devices</Heading>
 
-            <div className="rounded-md bg-blue-50 p-4">
-              <div className="flex">
-                <div className="shrink-0">
-                  <InformationCircleIcon
-                    aria-hidden="true"
-                    className="size-5 text-blue-400"
-                  />
-                </div>
-                <div className="ml-3 flex-1 md:flex md:justify-between">
-                  <p className="text-sm text-blue-700">
-                    There are currently no devices installed, make sure the
-                    integration is installed and the devices are connected to
-                    the same network as HomeAssistant
-                  </p>
+            {!devices.result.length && devices.status === "loaded" && (
+              <div className="rounded-md bg-blue-50 p-4">
+                <div className="flex">
+                  <div className="shrink-0">
+                    <InformationCircleIcon
+                      aria-hidden="true"
+                      className="size-5 text-blue-400"
+                    />
+                  </div>
+                  <div className="ml-3 flex-1 md:flex md:justify-between">
+                    <p className="text-sm text-blue-700">
+                      There are currently no devices installed, make sure the
+                      integration is installed and the devices are connected to
+                      the same network as HomeAssistant
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             <ul
               role="list"
               className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-8 xl:gap-x-8"
             >
-              {devices.map((device) => (
+              {devices.result.map((device) => (
                 <li key={device.id}>
                   <Device
                     device={device}
