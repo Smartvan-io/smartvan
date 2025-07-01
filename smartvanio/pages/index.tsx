@@ -8,6 +8,8 @@ import { DiscoveredDevice, Entity, Device as IDevice } from "../shared/types";
 import { IntegrationCard } from "@/shared/components/integration-card";
 import { Device } from "@/shared/components/device-card";
 import { DiscoveredDeviceCard } from "@/shared/components/discovered-device-card";
+import { Alert } from "@/shared/components/alert";
+import { InformationCircleIcon } from "@heroicons/react/24/outline";
 
 const { publicRuntimeConfig } = getConfig();
 const { basePath, websocketPath } = publicRuntimeConfig;
@@ -126,8 +128,8 @@ export default function Home() {
 
   return (
     <>
-      <div className="mt-8 md:grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6">
-        <div className="sm:col-span-1">
+      <div className="mt-4 md:grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6">
+        <div className="sm:col-span-1 mb-8">
           <IntegrationCard />
         </div>
         <div className="sm:col-span-1 lg:col-span-2">
@@ -169,6 +171,25 @@ export default function Home() {
           ) : null}
           <div>
             <Heading className="mb-4">Installed Devices</Heading>
+
+            <div className="rounded-md bg-blue-50 p-4">
+              <div className="flex">
+                <div className="shrink-0">
+                  <InformationCircleIcon
+                    aria-hidden="true"
+                    className="size-5 text-blue-400"
+                  />
+                </div>
+                <div className="ml-3 flex-1 md:flex md:justify-between">
+                  <p className="text-sm text-blue-700">
+                    There are currently no devices installed, make sure the
+                    integration is installed and the devices are connected to
+                    the same network as HomeAssistant
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <ul
               role="list"
               className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-8 xl:gap-x-8"

@@ -1,7 +1,5 @@
 "use client";
 
-import { Avatar } from "@/shared/components/avatar";
-import { Dropdown, DropdownButton } from "@/shared/components/dropdown";
 import {
   Navbar,
   NavbarItem,
@@ -11,17 +9,14 @@ import {
 import {
   Sidebar,
   SidebarBody,
-  SidebarHeader,
   SidebarItem,
-  SidebarLabel,
   SidebarSection,
 } from "@/shared/components/sidebar";
 import { StackedLayout } from "@/shared/components/stacked-layout";
-import { ChevronDownIcon } from "@heroicons/react/16/solid";
 import { usePathname } from "next/navigation";
 const navItems = [
   { label: "Home", url: "/" },
-  { label: "Settings", url: "/settings" },
+  { label: "Custom Cards", url: "/custom-cards" },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -43,15 +38,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       }
       sidebar={
         <Sidebar>
-          <SidebarHeader>
-            <Dropdown>
-              <DropdownButton as={SidebarItem} className="lg:mb-2.5">
-                <Avatar src="/tailwind-logo.svg" />
-                <SidebarLabel>Tailwind Labs</SidebarLabel>
-                <ChevronDownIcon />
-              </DropdownButton>
-            </Dropdown>
-          </SidebarHeader>
           <SidebarBody>
             <SidebarSection>
               {navItems.map(({ label, url }) => (
