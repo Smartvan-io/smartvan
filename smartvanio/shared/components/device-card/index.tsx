@@ -1,11 +1,6 @@
 import { Button } from "../button";
 import { EyeIcon } from "@heroicons/react/24/outline";
 import { Entity, Device as IDevice, States } from "../../types";
-import {
-  DescriptionDetails,
-  DescriptionList,
-  DescriptionTerm,
-} from "../description-list";
 import { Text } from "../text";
 
 export const Device = ({

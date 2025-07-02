@@ -14,7 +14,7 @@ const HASS_WS_URL = process.env.IS_HA
 
 const SUPERVISOR_TOKEN = process.env.SUPERVISOR_TOKEN;
 
-console.log(SUPERVISOR_TOKEN);
+console.log("SUPERVISOR TOKEN", SUPERVISOR_TOKEN);
 
 app.prepare().then(() => {
   const server = createServer((req, res) => {

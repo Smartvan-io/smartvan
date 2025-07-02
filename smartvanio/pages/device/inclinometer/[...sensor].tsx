@@ -28,6 +28,7 @@ import {
 import { Switch, SwitchField } from "@/shared/components/switch";
 import Image from "next/image";
 import { ConfirmDialog } from "@/shared/components/confirm-dialog";
+import { InclinometerIndicator } from "@/shared/components/level-indicator";
 
 const { publicRuntimeConfig } = getConfig();
 const { basePath, websocketPath } = publicRuntimeConfig;
@@ -141,22 +142,22 @@ export default function Device() {
 
   const pitch = [
     {
-      name: "Adjusted Pitch",
+      name: "Adjusted pitch angle",
       value: states[`adjusted_pitch_angle`]?.state,
     },
     {
-      name: "Actual Pitch",
+      name: "Actual pitch angle",
       value: states[`actual_pitch_angle`]?.state,
     },
   ];
 
   const roll = [
     {
-      name: "Adjusted Roll",
+      name: "Adjusted roll angle",
       value: states[`adjusted_roll_angle`]?.state,
     },
     {
-      name: "Actual Roll",
+      name: "Actual roll angle",
       value: states[`actual_roll_angle`]?.state,
     },
   ];
@@ -271,14 +272,11 @@ export default function Device() {
                   key={stat.name}
                   className=" px-4 py-6 sm:px-6 lg:px-8 text-center"
                 >
-                  <p className="text-sm/6 font-medium text-slate-400">
-                    {stat.name}
-                  </p>
-                  <p className="mt-2 items-baseline gap-x-2">
-                    <span className="text-4xl font-semibold tracking-tight text-white">
-                      {stat.value}
-                    </span>
-                  </p>
+                  <InclinometerIndicator
+                    angle={Number(stat.value)}
+                    name={stat.name}
+                    labels={["Front", "Back"]}
+                  />
                 </div>
               ))}
             </div>
@@ -354,14 +352,11 @@ export default function Device() {
                   key={stat.name}
                   className="px-4 py-6 sm:px-6 lg:px-8 text-center"
                 >
-                  <p className="text-sm/6 font-medium text-slate-400">
-                    {stat.name}
-                  </p>
-                  <p className="mt-2 items-baseline gap-x-2">
-                    <span className="text-4xl font-semibold tracking-tight text-white">
-                      {stat.value}
-                    </span>
-                  </p>
+                  <InclinometerIndicator
+                    angle={Number(stat.value)}
+                    name={stat.name}
+                    labels={["Left", "Right"]}
+                  />
                 </div>
               ))}
             </div>
