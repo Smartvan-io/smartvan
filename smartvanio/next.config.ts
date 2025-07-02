@@ -6,6 +6,11 @@ const host = process.env.HA_HOST || "";
 const isHa = process.env.IS_HA || "";
 const websocketPath = "/api/websocket";
 
+console.log(
+  "IS_HA",
+  `http://${isHa ? "supervisor" : host}/core/api/services/number/set_value`
+);
+
 const nextConfig: NextConfig = {
   trailingSlash: false,
   assetPrefix: basePath,
