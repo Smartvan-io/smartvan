@@ -3,7 +3,7 @@ import { Device } from "../types";
 import { getDomain } from "../utils";
 
 const { publicRuntimeConfig } = getConfig();
-const token = publicRuntimeConfig.token;
+const { token, basePath } = publicRuntimeConfig;
 
 const updateServiceMap: Record<string, { service: string; field?: string }> = {
   input_number: { service: "input_number/set_value", field: "value" },
@@ -48,7 +48,7 @@ export const updateEntity = async (
     };
   }
 
-  const res = await fetch(url, {
+  const res = await fetch(basePath + url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -64,7 +64,7 @@ export const updateEntity = async (
 };
 
 export const updateEntityInConfig = async (payload, device: Device) => {
-  const res = await fetch(`/api/settings/${device.id}`, {
+  const res = await fetch(basePath + `/api/settings/${device.id}`, {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${token}`,
