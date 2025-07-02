@@ -14,7 +14,7 @@ const HASS_WS_URL = process.env.IS_HA
 
 const SUPERVISOR_TOKEN = process.env.SUPERVISOR_TOKEN;
 
-console.log("SUPERVISOR TOKEN", SUPERVISOR_TOKEN);
+console.log("SUPERVISOR TOKEN", SUPERVISOR_TOKEN, HASS_WS_URL);
 
 app.prepare().then(() => {
   const server = createServer((req, res) => {
@@ -25,7 +25,6 @@ app.prepare().then(() => {
   const wss = new WebSocketServer({ noServer: true });
 
   server.on("upgrade", (req, socket, head) => {
-    console.log(req.url);
     if (req.url.includes("/api/websocket")) {
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit("connection", ws, req);
