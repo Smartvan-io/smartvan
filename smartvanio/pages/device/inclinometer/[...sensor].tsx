@@ -114,7 +114,7 @@ export default function Device() {
       };
       fn();
     }
-  }, [entities, device, sensor]);
+  }, [entities, device, sensor, reset]);
 
   const states = getStates(entityStates, device);
 
@@ -165,22 +165,22 @@ export default function Device() {
     {
       name: "Option 1",
       title: "Flat",
-      src: "/flat.jpg",
+      src: basePath + "/flat.jpg",
     },
     {
       name: "Option 2",
       title: "Upright",
-      src: "/upright.jpg",
+      src: basePath + "/upright.jpg",
     },
     {
       name: "Option 3",
       title: "Upright Sideways",
-      src: "/upright_sideways.jpg",
+      src: basePath + "/upright_sideways.jpg",
     },
     {
       name: "Option 4",
       title: "Flat Sideways ",
-      src: "/flat_sideways.jpg",
+      src: basePath + "/flat_sideways.jpg",
     },
   ];
 
