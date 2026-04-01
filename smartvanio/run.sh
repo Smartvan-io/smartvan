@@ -8,7 +8,9 @@ set -e
 # ── GitHub repos ─────────────────────────────────────────────
 
 INTEGRATION_REPO="Smartvan-io/integration"
+INTEGRATION_BRANCH="beta"
 CARD_REPO="Smartvan-io/smartvanio-main-card"
+CARD_BRANCH="beta"
 
 # ── Config ───────────────────────────────────────────────────
 
@@ -56,31 +58,17 @@ wait_for_ha() {
     return 1
 }
 
-# Fetch the latest tag from a GitHub repo, fallback to main branch
-get_latest_ref() {
-    local repo="$1"
-    local tag
-    tag=$(curl -s "https://api.github.com/repos/${repo}/releases/latest" | jq -r '.tag_name // empty' 2>/dev/null)
-    if [ -n "$tag" ]; then
-        echo "$tag"
-    else
-        echo "main"
-    fi
-}
-
 # ── Step 1: Fetch and install integration ────────────────────
 
 bashio::log.info ""
 bashio::log.info "Step 1/5: Installing SmartVan.io integration..."
 
 INTEGRATION_DIR="/config/custom_components/smartvanio"
-INTEGRATION_REF=$(get_latest_ref "$INTEGRATION_REPO")
+INTEGRATION_REF="${INTEGRATION_BRANCH}"
 bashio::log.info "  Fetching ${INTEGRATION_REPO} @ ${INTEGRATION_REF}..."
 
 TMPDIR=$(mktemp -d)
 if curl -sL "https://github.com/${INTEGRATION_REPO}/archive/refs/heads/${INTEGRATION_REF}.tar.gz" \
-    -o "$TMPDIR/integration.tar.gz" 2>/dev/null || \
-   curl -sL "https://github.com/${INTEGRATION_REPO}/archive/refs/tags/${INTEGRATION_REF}.tar.gz" \
     -o "$TMPDIR/integration.tar.gz" 2>/dev/null; then
 
     tar -xzf "$TMPDIR/integration.tar.gz" -C "$TMPDIR" 2>/dev/null
@@ -108,15 +96,13 @@ bashio::log.info ""
 bashio::log.info "Step 2/5: Installing dashboard card..."
 
 CARDS_DIR="/config/www/smartvanio"
-CARD_REF=$(get_latest_ref "$CARD_REPO")
+CARD_REF="${CARD_BRANCH}"
 bashio::log.info "  Fetching ${CARD_REPO} @ ${CARD_REF}..."
 
 mkdir -p "$CARDS_DIR"
 TMPDIR=$(mktemp -d)
 
 if curl -sL "https://github.com/${CARD_REPO}/archive/refs/heads/${CARD_REF}.tar.gz" \
-    -o "$TMPDIR/card.tar.gz" 2>/dev/null || \
-   curl -sL "https://github.com/${CARD_REPO}/archive/refs/tags/${CARD_REF}.tar.gz" \
     -o "$TMPDIR/card.tar.gz" 2>/dev/null; then
 
     tar -xzf "$TMPDIR/card.tar.gz" -C "$TMPDIR" 2>/dev/null
