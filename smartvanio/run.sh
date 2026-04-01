@@ -3,8 +3,6 @@
 # Fetches the integration and cards from GitHub, installs them,
 # creates the dashboard, and configures MQTT + SmartVan.io integration.
 
-set -e
-
 # ── GitHub repos ─────────────────────────────────────────────
 
 INTEGRATION_REPO="Smartvan-io/integration"
