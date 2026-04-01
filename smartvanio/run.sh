@@ -186,95 +186,111 @@ bashio::log.info ""
 bashio::log.info "Step 4/5: Checking MQTT broker..."
 
 MOSQUITTO_SLUG="core_mosquitto"
-if bashio::addons.installed "${MOSQUITTO_SLUG}" 2>/dev/null; then
-    bashio::log.info "  Mosquitto add-on is installed"
-    ADDON_STATE=$(bashio::addons.info "${MOSQUITTO_SLUG}" "state" 2>/dev/null || echo "unknown")
-    if [ "${ADDON_STATE}" != "started" ]; then
-        bashio::log.warning "  Starting Mosquitto..."
-        bashio::addon.start "${MOSQUITTO_SLUG}" 2>/dev/null || true
-        sleep 5
-    fi
-    MQTT_HOST="core-mosquitto"
-else
-    bashio::log.warning "  Mosquitto add-on not installed"
-    bashio::log.warning "  Install it from the Add-on Store, then re-run this add-on"
-    MQTT_HOST="localhost"
+MQTT_HOST="core-mosquitto"
+
+# Install Mosquitto if not present
+if ! bashio::addons.installed "${MOSQUITTO_SLUG}" 2>/dev/null; then
+    bashio::log.info "  Mosquitto not installed — installing..."
+    curl -s -X POST \
+        -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+        -H "Content-Type: application/json" \
+        "http://supervisor/addons/${MOSQUITTO_SLUG}/install" >/dev/null 2>&1
+
+    # Wait for install to complete
+    for i in $(seq 1 60); do
+        if bashio::addons.installed "${MOSQUITTO_SLUG}" 2>/dev/null; then
+            bashio::log.info "  Mosquitto installed"
+            break
+        fi
+        sleep 3
+    done
 fi
+
+# Configure Mosquitto with smartvanio user
+bashio::log.info "  Configuring Mosquitto..."
+curl -s -X POST \
+    -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "{\"logins\":[{\"username\":\"${MQTT_USER}\",\"password\":\"${MQTT_PASSWORD}\"}],\"customize\":{\"active\":false,\"folder\":\"mosquitto\"}}" \
+    "http://supervisor/addons/${MOSQUITTO_SLUG}/options" >/dev/null 2>&1
+
+# Start Mosquitto if not running
+ADDON_STATE=$(bashio::addons.info "${MOSQUITTO_SLUG}" "state" 2>/dev/null || echo "unknown")
+if [ "${ADDON_STATE}" != "started" ]; then
+    bashio::log.info "  Starting Mosquitto..."
+    curl -s -X POST \
+        -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+        "http://supervisor/addons/${MOSQUITTO_SLUG}/start" >/dev/null 2>&1
+    sleep 10
+fi
+bashio::log.info "  Mosquitto is ready"
 
 # ── Step 5: Configure integrations via HA API ────────────────
 
 bashio::log.info ""
 bashio::log.info "Step 5/5: Configuring integrations..."
 
-if wait_for_ha; then
-    # Register Lovelace resources via API (storage mode fallback)
-    EXISTING=$(ha_api GET "/config/lovelace/resources" 2>/dev/null || echo "[]")
-    MAIN_CARD_EXISTS=$(echo "$EXISTING" | jq -r '[.[] | select(.url | contains("smartvanio-main-card"))] | length' 2>/dev/null || echo "0")
-    if [ "$MAIN_CARD_EXISTS" = "0" ]; then
-        ha_api POST "/config/lovelace/resources" \
-            '{"res_type":"module","url":"/local/smartvanio/smartvanio-main-card.js"}' >/dev/null 2>&1 || true
-        bashio::log.info "  Registered smartvanio-main-card.js resource"
-    fi
+# Restart HA so it picks up the newly installed integration + card files
+bashio::log.info "  Restarting Home Assistant to load new components..."
+ha_api POST "/services/homeassistant/restart" '{}' >/dev/null 2>&1 || true
+sleep 15
+wait_for_ha || true
 
-    # Configure MQTT
-    ENTRIES=$(ha_api GET "/config/config_entries/entry" 2>/dev/null || echo "[]")
-    MQTT_EXISTS=$(echo "$ENTRIES" | jq -r '[.[] | select(.domain == "mqtt")] | length' 2>/dev/null || echo "0")
+# Register Lovelace resources via API (storage mode fallback)
+EXISTING=$(ha_api GET "/config/lovelace/resources" 2>/dev/null || echo "[]")
+MAIN_CARD_EXISTS=$(echo "$EXISTING" | jq -r '[.[] | select(.url | contains("smartvanio-main-card"))] | length' 2>/dev/null || echo "0")
+if [ "$MAIN_CARD_EXISTS" = "0" ]; then
+    ha_api POST "/config/lovelace/resources" \
+        '{"res_type":"module","url":"/local/smartvanio/smartvanio-main-card.js"}' >/dev/null 2>&1 || true
+    bashio::log.info "  Registered smartvanio-main-card.js resource"
+fi
 
-    if [ "$MQTT_EXISTS" = "0" ]; then
-        FLOW=$(ha_api POST "/config/config_entries/flow" \
-            '{"handler":"mqtt","show_advanced_options":false}' 2>/dev/null || echo "")
-        FLOW_ID=$(echo "$FLOW" | jq -r '.flow_id // empty' 2>/dev/null)
-        if [ -n "$FLOW_ID" ]; then
-            RESULT=$(ha_api POST "/config/config_entries/flow/${FLOW_ID}" \
-                "{\"broker\":\"${MQTT_HOST}\",\"port\":1883,\"username\":\"${MQTT_USER}\",\"password\":\"${MQTT_PASSWORD}\"}" 2>/dev/null)
-            RESULT_TYPE=$(echo "$RESULT" | jq -r '.type // empty' 2>/dev/null)
-            if [ "$RESULT_TYPE" = "create_entry" ]; then
-                bashio::log.info "  MQTT configured (broker: ${MQTT_HOST})"
-            else
-                bashio::log.warning "  MQTT config flow: ${RESULT_TYPE} — configure manually"
-            fi
-        fi
-    else
-        bashio::log.info "  MQTT already configured"
-    fi
+# Configure MQTT integration (must be done before SmartVan.io)
+ENTRIES=$(ha_api GET "/config/config_entries/entry" 2>/dev/null || echo "[]")
+MQTT_EXISTS=$(echo "$ENTRIES" | jq -r '[.[] | select(.domain == "mqtt")] | length' 2>/dev/null || echo "0")
 
-    # Configure SmartVan.io integration
-    ENTRIES=$(ha_api GET "/config/config_entries/entry" 2>/dev/null || echo "[]")
-    SV_EXISTS=$(echo "$ENTRIES" | jq -r '[.[] | select(.domain == "smartvanio")] | length' 2>/dev/null || echo "0")
-
-    if [ "$SV_EXISTS" = "0" ]; then
-        FLOW=$(ha_api POST "/config/config_entries/flow" \
-            '{"handler":"smartvanio","show_advanced_options":false}' 2>/dev/null || echo "")
-        FLOW_ID=$(echo "$FLOW" | jq -r '.flow_id // empty' 2>/dev/null)
-
-        if [ -n "$FLOW_ID" ]; then
-            RESULT=$(ha_api POST "/config/config_entries/flow/${FLOW_ID}" \
-                '{"mqtt_prefix":"smartvanio"}' 2>/dev/null)
-            RESULT_TYPE=$(echo "$RESULT" | jq -r '.type // empty' 2>/dev/null)
-            if [ "$RESULT_TYPE" = "create_entry" ]; then
-                bashio::log.info "  SmartVan.io integration configured"
-            else
-                bashio::log.warning "  SmartVan.io config: ${RESULT_TYPE}"
-                bashio::log.warning "  Restart HA, then re-run this add-on"
-            fi
+if [ "$MQTT_EXISTS" = "0" ]; then
+    bashio::log.info "  Configuring MQTT integration..."
+    FLOW=$(ha_api POST "/config/config_entries/flow" \
+        '{"handler":"mqtt","show_advanced_options":false}' 2>/dev/null || echo "")
+    FLOW_ID=$(echo "$FLOW" | jq -r '.flow_id // empty' 2>/dev/null)
+    if [ -n "$FLOW_ID" ]; then
+        RESULT=$(ha_api POST "/config/config_entries/flow/${FLOW_ID}" \
+            "{\"broker\":\"${MQTT_HOST}\",\"port\":1883,\"username\":\"${MQTT_USER}\",\"password\":\"${MQTT_PASSWORD}\"}" 2>/dev/null)
+        RESULT_TYPE=$(echo "$RESULT" | jq -r '.type // empty' 2>/dev/null)
+        if [ "$RESULT_TYPE" = "create_entry" ]; then
+            bashio::log.info "  MQTT configured (broker: ${MQTT_HOST})"
         else
-            bashio::log.info "  Requesting HA restart to load the integration..."
-            ha_api POST "/services/homeassistant/restart" '{}' >/dev/null 2>&1 || true
-            sleep 30
-            if wait_for_ha; then
-                FLOW=$(ha_api POST "/config/config_entries/flow" \
-                    '{"handler":"smartvanio","show_advanced_options":false}' 2>/dev/null || echo "")
-                FLOW_ID=$(echo "$FLOW" | jq -r '.flow_id // empty' 2>/dev/null)
-                if [ -n "$FLOW_ID" ]; then
-                    ha_api POST "/config/config_entries/flow/${FLOW_ID}" \
-                        '{"mqtt_prefix":"smartvanio"}' >/dev/null 2>&1 || true
-                    bashio::log.info "  SmartVan.io integration configured after restart"
-                fi
-            fi
+            bashio::log.warning "  MQTT config flow: ${RESULT_TYPE} — configure manually"
         fi
-    else
-        bashio::log.info "  SmartVan.io already configured"
     fi
+    # Give MQTT time to fully connect
+    sleep 5
+else
+    bashio::log.info "  MQTT already configured"
+fi
+
+# Configure SmartVan.io integration
+ENTRIES=$(ha_api GET "/config/config_entries/entry" 2>/dev/null || echo "[]")
+SV_EXISTS=$(echo "$ENTRIES" | jq -r '[.[] | select(.domain == "smartvanio")] | length' 2>/dev/null || echo "0")
+
+if [ "$SV_EXISTS" = "0" ]; then
+    bashio::log.info "  Configuring SmartVan.io integration..."
+    FLOW=$(ha_api POST "/config/config_entries/flow" \
+        '{"handler":"smartvanio","show_advanced_options":false}' 2>/dev/null || echo "")
+    FLOW_ID=$(echo "$FLOW" | jq -r '.flow_id // empty' 2>/dev/null)
+    if [ -n "$FLOW_ID" ]; then
+        RESULT=$(ha_api POST "/config/config_entries/flow/${FLOW_ID}" \
+            '{"mqtt_prefix":"smartvanio"}' 2>/dev/null)
+        RESULT_TYPE=$(echo "$RESULT" | jq -r '.type // empty' 2>/dev/null)
+        if [ "$RESULT_TYPE" = "create_entry" ]; then
+            bashio::log.info "  SmartVan.io integration configured"
+        else
+            bashio::log.warning "  SmartVan.io config: ${RESULT_TYPE}"
+        fi
+    fi
+else
+    bashio::log.info "  SmartVan.io already configured"
 fi
 
 # ── Summary ──────────────────────────────────────────────────
