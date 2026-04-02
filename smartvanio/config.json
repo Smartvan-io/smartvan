@@ -1,6 +1,6 @@
 {
   "name": "SmartVan.io",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "slug": "smartvanio",
   "description": "One-click setup for SmartVan.io campervan control system. Installs the integration, dashboard cards, and configures MQTT.",
   "url": "https://smartvan.io",

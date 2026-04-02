@@ -186,39 +186,48 @@ bashio::log.info "Step 4/5: Checking MQTT broker..."
 MOSQUITTO_SLUG="core_mosquitto"
 MQTT_HOST="core-mosquitto"
 
-# Install Mosquitto if not present
-if ! bashio::addons.installed "${MOSQUITTO_SLUG}" 2>/dev/null; then
-    bashio::log.info "  Mosquitto not installed — installing..."
-    curl -s -X POST \
+supervisor_api() {
+    curl -s -X "$1" \
         -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
         -H "Content-Type: application/json" \
-        "http://supervisor/addons/${MOSQUITTO_SLUG}/install" >/dev/null 2>&1
+        ${3:+-d "$3"} \
+        "http://supervisor${2}"
+}
+
+# Check if Mosquitto is installed
+MOSQ_INFO=$(supervisor_api GET "/addons/${MOSQUITTO_SLUG}/info" 2>/dev/null)
+MOSQ_INSTALLED=$(echo "$MOSQ_INFO" | jq -r '.data.state // empty' 2>/dev/null)
+
+if [ -z "$MOSQ_INSTALLED" ]; then
+    bashio::log.info "  Mosquitto not installed — installing..."
+    INSTALL_RESULT=$(supervisor_api POST "/addons/${MOSQUITTO_SLUG}/install")
+    bashio::log.info "  Install result: $(echo "$INSTALL_RESULT" | jq -r '.result // "unknown"')"
 
     # Wait for install to complete
-    for i in $(seq 1 60); do
-        if bashio::addons.installed "${MOSQUITTO_SLUG}" 2>/dev/null; then
-            bashio::log.info "  Mosquitto installed"
+    for i in $(seq 1 90); do
+        MOSQ_INFO=$(supervisor_api GET "/addons/${MOSQUITTO_SLUG}/info" 2>/dev/null)
+        MOSQ_STATE=$(echo "$MOSQ_INFO" | jq -r '.data.state // empty' 2>/dev/null)
+        if [ -n "$MOSQ_STATE" ]; then
+            bashio::log.info "  Mosquitto installed (state: ${MOSQ_STATE})"
             break
         fi
-        sleep 3
+        sleep 2
     done
+else
+    bashio::log.info "  Mosquitto already installed (state: ${MOSQ_INSTALLED})"
 fi
 
 # Configure Mosquitto with smartvanio user
 bashio::log.info "  Configuring Mosquitto..."
-curl -s -X POST \
-    -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
-    -H "Content-Type: application/json" \
-    -d "{\"logins\":[{\"username\":\"${MQTT_USER}\",\"password\":\"${MQTT_PASSWORD}\"}],\"customize\":{\"active\":false,\"folder\":\"mosquitto\"}}" \
-    "http://supervisor/addons/${MOSQUITTO_SLUG}/options" >/dev/null 2>&1
+supervisor_api POST "/addons/${MOSQUITTO_SLUG}/options" \
+    "{\"logins\":[{\"username\":\"${MQTT_USER}\",\"password\":\"${MQTT_PASSWORD}\"}],\"customize\":{\"active\":false,\"folder\":\"mosquitto\"}}" >/dev/null 2>&1
 
 # Start Mosquitto if not running
-ADDON_STATE=$(bashio::addons.info "${MOSQUITTO_SLUG}" "state" 2>/dev/null || echo "unknown")
-if [ "${ADDON_STATE}" != "started" ]; then
+MOSQ_INFO=$(supervisor_api GET "/addons/${MOSQUITTO_SLUG}/info" 2>/dev/null)
+MOSQ_STATE=$(echo "$MOSQ_INFO" | jq -r '.data.state // empty' 2>/dev/null)
+if [ "$MOSQ_STATE" != "started" ]; then
     bashio::log.info "  Starting Mosquitto..."
-    curl -s -X POST \
-        -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
-        "http://supervisor/addons/${MOSQUITTO_SLUG}/start" >/dev/null 2>&1
+    supervisor_api POST "/addons/${MOSQUITTO_SLUG}/start" >/dev/null 2>&1
     sleep 10
 fi
 bashio::log.info "  Mosquitto is ready"
