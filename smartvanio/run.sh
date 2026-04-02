@@ -26,16 +26,16 @@ ha_api() {
     local data="$3"
 
     if [ -n "$data" ]; then
-        curl -s -X "$method" \
+        curl -s -m 10 -X "$method" \
             -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "$data" \
-            "http://supervisor/core/api${endpoint}" 2>/dev/null
+            "http://supervisor/core/api${endpoint}" 2>/dev/null || echo ""
     else
-        curl -s -X "$method" \
+        curl -s -m 10 -X "$method" \
             -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
             -H "Content-Type: application/json" \
-            "http://supervisor/core/api${endpoint}" 2>/dev/null
+            "http://supervisor/core/api${endpoint}" 2>/dev/null || echo ""
     fi
 }
 
@@ -181,10 +181,7 @@ fi
 # ── Step 4: Ensure MQTT broker is available ─────────────────
 
 bashio::log.info ""
-bashio::log.info "Step 4/5: Checking MQTT broker..."
-
-# Make sure HA API is reachable before querying config entries
-wait_for_ha || bashio::log.warning "  HA API not available, continuing anyway..."
+bashio::log.info "Step 4/5: Ensuring MQTT broker is available..."
 
 MOSQUITTO_SLUG="core_mosquitto"
 
@@ -193,62 +190,47 @@ supervisor_api() {
     local endpoint="$2"
     local data="$3"
     if [ -n "$data" ]; then
-        curl -s -X "$method" \
+        curl -s -m 30 -X "$method" \
             -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "$data" \
             "http://supervisor${endpoint}" 2>/dev/null || echo "{}"
     else
-        curl -s -X "$method" \
+        curl -s -m 30 -X "$method" \
             -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
             -H "Content-Type: application/json" \
             "http://supervisor${endpoint}" 2>/dev/null || echo "{}"
     fi
 }
 
-# Check if MQTT integration is already configured
-bashio::log.info "  Checking existing MQTT configuration..."
-ENTRIES=$(ha_api GET "/config/config_entries/entry" 2>/dev/null || echo "[]")
-MQTT_EXISTS=$(echo "$ENTRIES" | jq -r '[.[] | select(.domain == "mqtt")] | length' 2>/dev/null || echo "0")
-bashio::log.info "  MQTT entries found: ${MQTT_EXISTS}"
+# Check if Mosquitto add-on is installed (via Supervisor — doesn't need HA)
+MOSQ_INFO=$(supervisor_api GET "/addons/${MOSQUITTO_SLUG}/info")
+MOSQ_STATE=$(echo "$MOSQ_INFO" | jq -r '.data.state // empty' 2>/dev/null)
+bashio::log.info "  Mosquitto state: ${MOSQ_STATE:-not installed}"
 
-if [ "$MQTT_EXISTS" != "0" ]; then
-    bashio::log.info "  MQTT already configured — using existing broker"
-else
-    # No MQTT configured — check if Mosquitto add-on is installed
-    MOSQ_INFO=$(supervisor_api GET "/addons/${MOSQUITTO_SLUG}/info" 2>/dev/null)
-    MOSQ_STATE=$(echo "$MOSQ_INFO" | jq -r '.data.state // empty' 2>/dev/null)
+if [ -z "$MOSQ_STATE" ]; then
+    bashio::log.info "  Installing Mosquitto..."
+    INSTALL_RESULT=$(supervisor_api POST "/addons/${MOSQUITTO_SLUG}/install")
+    bashio::log.info "  Install: $(echo "$INSTALL_RESULT" | jq -r '.result // "unknown"')"
 
-    if [ -z "$MOSQ_STATE" ]; then
-        # Mosquitto not installed — install it
-        bashio::log.info "  No MQTT broker found — installing Mosquitto..."
-        INSTALL_RESULT=$(supervisor_api POST "/addons/${MOSQUITTO_SLUG}/install")
-        bashio::log.info "  Install: $(echo "$INSTALL_RESULT" | jq -r '.result // "unknown"')"
-
-        # Wait for install to complete
-        for i in $(seq 1 90); do
-            MOSQ_INFO=$(supervisor_api GET "/addons/${MOSQUITTO_SLUG}/info" 2>/dev/null)
-            MOSQ_STATE=$(echo "$MOSQ_INFO" | jq -r '.data.state // empty' 2>/dev/null)
-            if [ -n "$MOSQ_STATE" ]; then
-                bashio::log.info "  Mosquitto installed"
-                break
-            fi
-            sleep 2
-        done
-    else
-        bashio::log.info "  Mosquitto already installed (state: ${MOSQ_STATE})"
-    fi
-
-    # Start Mosquitto if not running
-    MOSQ_INFO=$(supervisor_api GET "/addons/${MOSQUITTO_SLUG}/info" 2>/dev/null)
-    MOSQ_STATE=$(echo "$MOSQ_INFO" | jq -r '.data.state // empty' 2>/dev/null)
-    if [ "$MOSQ_STATE" != "started" ]; then
-        bashio::log.info "  Starting Mosquitto..."
-        supervisor_api POST "/addons/${MOSQUITTO_SLUG}/start" >/dev/null 2>&1
-        sleep 10
-    fi
-    bashio::log.info "  Mosquitto is ready"
+    for i in $(seq 1 90); do
+        MOSQ_INFO=$(supervisor_api GET "/addons/${MOSQUITTO_SLUG}/info")
+        MOSQ_STATE=$(echo "$MOSQ_INFO" | jq -r '.data.state // empty' 2>/dev/null)
+        if [ -n "$MOSQ_STATE" ]; then
+            bashio::log.info "  Mosquitto installed"
+            break
+        fi
+        sleep 2
+    done
 fi
+
+# Start Mosquitto if not running
+if [ "$MOSQ_STATE" != "started" ]; then
+    bashio::log.info "  Starting Mosquitto..."
+    supervisor_api POST "/addons/${MOSQUITTO_SLUG}/start" >/dev/null 2>&1
+    sleep 10
+fi
+bashio::log.info "  Mosquitto is ready"
 
 # ── Step 5: Configure integrations via HA API ────────────────
 
