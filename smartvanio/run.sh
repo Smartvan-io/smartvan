@@ -10,13 +10,6 @@ INTEGRATION_BRANCH="beta"
 CARD_REPO="Smartvan-io/smartvanio-main-card"
 CARD_BRANCH="beta"
 
-# ── Config ───────────────────────────────────────────────────
-
-MQTT_USER=$(bashio::config 'mqtt_user')
-MQTT_PASSWORD=$(bashio::config 'mqtt_password')
-MQTT_USER="${MQTT_USER:-smartvanio}"
-MQTT_PASSWORD="${MQTT_PASSWORD:-smartvanio123}"
-
 bashio::log.info "============================================="
 bashio::log.info "  SmartVan.io Setup"
 bashio::log.info "============================================="
@@ -178,13 +171,12 @@ YAMLEOF
     fi
 fi
 
-# ── Step 4: Check MQTT broker ────────────────────────────────
+# ── Step 4: Ensure MQTT broker is available ─────────────────
 
 bashio::log.info ""
 bashio::log.info "Step 4/5: Checking MQTT broker..."
 
 MOSQUITTO_SLUG="core_mosquitto"
-MQTT_HOST="core-mosquitto"
 
 supervisor_api() {
     curl -s -X "$1" \
@@ -194,43 +186,47 @@ supervisor_api() {
         "http://supervisor${2}"
 }
 
-# Check if Mosquitto is installed
-MOSQ_INFO=$(supervisor_api GET "/addons/${MOSQUITTO_SLUG}/info" 2>/dev/null)
-MOSQ_INSTALLED=$(echo "$MOSQ_INFO" | jq -r '.data.state // empty' 2>/dev/null)
+# Check if MQTT integration is already configured
+ENTRIES=$(ha_api GET "/config/config_entries/entry" 2>/dev/null || echo "[]")
+MQTT_EXISTS=$(echo "$ENTRIES" | jq -r '[.[] | select(.domain == "mqtt")] | length' 2>/dev/null || echo "0")
 
-if [ -z "$MOSQ_INSTALLED" ]; then
-    bashio::log.info "  Mosquitto not installed — installing..."
-    INSTALL_RESULT=$(supervisor_api POST "/addons/${MOSQUITTO_SLUG}/install")
-    bashio::log.info "  Install result: $(echo "$INSTALL_RESULT" | jq -r '.result // "unknown"')"
-
-    # Wait for install to complete
-    for i in $(seq 1 90); do
-        MOSQ_INFO=$(supervisor_api GET "/addons/${MOSQUITTO_SLUG}/info" 2>/dev/null)
-        MOSQ_STATE=$(echo "$MOSQ_INFO" | jq -r '.data.state // empty' 2>/dev/null)
-        if [ -n "$MOSQ_STATE" ]; then
-            bashio::log.info "  Mosquitto installed (state: ${MOSQ_STATE})"
-            break
-        fi
-        sleep 2
-    done
+if [ "$MQTT_EXISTS" != "0" ]; then
+    bashio::log.info "  MQTT already configured — using existing broker"
 else
-    bashio::log.info "  Mosquitto already installed (state: ${MOSQ_INSTALLED})"
-fi
+    # No MQTT configured — check if Mosquitto add-on is installed
+    MOSQ_INFO=$(supervisor_api GET "/addons/${MOSQUITTO_SLUG}/info" 2>/dev/null)
+    MOSQ_STATE=$(echo "$MOSQ_INFO" | jq -r '.data.state // empty' 2>/dev/null)
 
-# Configure Mosquitto with smartvanio user
-bashio::log.info "  Configuring Mosquitto..."
-supervisor_api POST "/addons/${MOSQUITTO_SLUG}/options" \
-    "{\"logins\":[{\"username\":\"${MQTT_USER}\",\"password\":\"${MQTT_PASSWORD}\"}],\"customize\":{\"active\":false,\"folder\":\"mosquitto\"}}" >/dev/null 2>&1
+    if [ -z "$MOSQ_STATE" ]; then
+        # Mosquitto not installed — install it
+        bashio::log.info "  No MQTT broker found — installing Mosquitto..."
+        INSTALL_RESULT=$(supervisor_api POST "/addons/${MOSQUITTO_SLUG}/install")
+        bashio::log.info "  Install: $(echo "$INSTALL_RESULT" | jq -r '.result // "unknown"')"
 
-# Start Mosquitto if not running
-MOSQ_INFO=$(supervisor_api GET "/addons/${MOSQUITTO_SLUG}/info" 2>/dev/null)
-MOSQ_STATE=$(echo "$MOSQ_INFO" | jq -r '.data.state // empty' 2>/dev/null)
-if [ "$MOSQ_STATE" != "started" ]; then
-    bashio::log.info "  Starting Mosquitto..."
-    supervisor_api POST "/addons/${MOSQUITTO_SLUG}/start" >/dev/null 2>&1
-    sleep 10
+        # Wait for install to complete
+        for i in $(seq 1 90); do
+            MOSQ_INFO=$(supervisor_api GET "/addons/${MOSQUITTO_SLUG}/info" 2>/dev/null)
+            MOSQ_STATE=$(echo "$MOSQ_INFO" | jq -r '.data.state // empty' 2>/dev/null)
+            if [ -n "$MOSQ_STATE" ]; then
+                bashio::log.info "  Mosquitto installed"
+                break
+            fi
+            sleep 2
+        done
+    else
+        bashio::log.info "  Mosquitto already installed (state: ${MOSQ_STATE})"
+    fi
+
+    # Start Mosquitto if not running
+    MOSQ_INFO=$(supervisor_api GET "/addons/${MOSQUITTO_SLUG}/info" 2>/dev/null)
+    MOSQ_STATE=$(echo "$MOSQ_INFO" | jq -r '.data.state // empty' 2>/dev/null)
+    if [ "$MOSQ_STATE" != "started" ]; then
+        bashio::log.info "  Starting Mosquitto..."
+        supervisor_api POST "/addons/${MOSQUITTO_SLUG}/start" >/dev/null 2>&1
+        sleep 10
+    fi
+    bashio::log.info "  Mosquitto is ready"
 fi
-bashio::log.info "  Mosquitto is ready"
 
 # ── Step 5: Configure integrations via HA API ────────────────
 
@@ -252,7 +248,7 @@ if [ "$MAIN_CARD_EXISTS" = "0" ]; then
     bashio::log.info "  Registered smartvanio-main-card.js resource"
 fi
 
-# Configure MQTT integration (must be done before SmartVan.io)
+# Configure MQTT integration if not already set up
 ENTRIES=$(ha_api GET "/config/config_entries/entry" 2>/dev/null || echo "[]")
 MQTT_EXISTS=$(echo "$ENTRIES" | jq -r '[.[] | select(.domain == "mqtt")] | length' 2>/dev/null || echo "0")
 
@@ -260,19 +256,31 @@ if [ "$MQTT_EXISTS" = "0" ]; then
     bashio::log.info "  Configuring MQTT integration..."
     FLOW=$(ha_api POST "/config/config_entries/flow" \
         '{"handler":"mqtt","show_advanced_options":false}' 2>/dev/null || echo "")
+
+    # Check if flow offers addon mode (Mosquitto detected) or needs manual broker config
+    STEP_ID=$(echo "$FLOW" | jq -r '.step_id // empty' 2>/dev/null)
     FLOW_ID=$(echo "$FLOW" | jq -r '.flow_id // empty' 2>/dev/null)
+
     if [ -n "$FLOW_ID" ]; then
-        RESULT=$(ha_api POST "/config/config_entries/flow/${FLOW_ID}" \
-            "{\"broker\":\"${MQTT_HOST}\",\"port\":1883,\"username\":\"${MQTT_USER}\",\"password\":\"${MQTT_PASSWORD}\"}" 2>/dev/null)
+        if [ "$STEP_ID" = "user" ] && echo "$FLOW" | jq -e '.menu_options' >/dev/null 2>&1; then
+            # Menu with addon option — select it (auto-configures from Mosquitto add-on)
+            bashio::log.info "  Using Mosquitto add-on for MQTT (auto-configured)"
+            RESULT=$(ha_api POST "/config/config_entries/flow/${FLOW_ID}" \
+                '{"next_step_id":"addon"}' 2>/dev/null)
+        else
+            # No menu — provide broker details manually
+            RESULT=$(ha_api POST "/config/config_entries/flow/${FLOW_ID}" \
+                '{"broker":"core-mosquitto","port":1883}' 2>/dev/null)
+        fi
         RESULT_TYPE=$(echo "$RESULT" | jq -r '.type // empty' 2>/dev/null)
         if [ "$RESULT_TYPE" = "create_entry" ]; then
-            bashio::log.info "  MQTT configured (broker: ${MQTT_HOST})"
+            bashio::log.info "  MQTT configured"
         else
-            bashio::log.warning "  MQTT config flow: ${RESULT_TYPE} — configure manually"
+            bashio::log.warning "  MQTT config flow result: ${RESULT_TYPE}"
+            bashio::log.warning "  $(echo "$RESULT" | jq -c '.errors // empty' 2>/dev/null)"
         fi
+        sleep 5
     fi
-    # Give MQTT time to fully connect
-    sleep 5
 else
     bashio::log.info "  MQTT already configured"
 fi

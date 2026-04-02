@@ -1,6 +1,6 @@
 {
   "name": "SmartVan.io",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "slug": "smartvanio",
   "description": "One-click setup for SmartVan.io campervan control system. Installs the integration, dashboard cards, and configures MQTT.",
   "url": "https://smartvan.io",
@@ -9,16 +9,8 @@
   "boot": "manual",
   "init": false,
   "map": ["config:rw"],
-  "options": {
-    "mqtt_user": "smartvanio",
-    "mqtt_password": "smartvanio123",
-    "device_id": ""
-  },
-  "schema": {
-    "mqtt_user": "str",
-    "mqtt_password": "password",
-    "device_id": "str"
-  },
+  "options": {},
+  "schema": {},
   "hassio_api": true,
   "homeassistant_api": true
 }
