@@ -41,15 +41,18 @@ ha_api() {
 
 wait_for_ha() {
     bashio::log.info "Waiting for Home Assistant API..."
-    for i in $(seq 1 60); do
-        RESULT=$(ha_api GET "/" 2>/dev/null || echo "")
+    for i in $(seq 1 30); do
+        RESULT=$(curl -s -m 5 \
+            -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+            "http://supervisor/core/api/" 2>/dev/null || echo "")
+        bashio::log.debug "  HA check ${i}: ${RESULT:0:80}"
         if echo "$RESULT" | grep -q "API running"; then
             bashio::log.info "  Home Assistant API is ready"
             return 0
         fi
         sleep 2
     done
-    bashio::log.warning "  Home Assistant API not available"
+    bashio::log.warning "  Home Assistant API not available after 60s"
     return 1
 }
 
