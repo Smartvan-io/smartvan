@@ -23,7 +23,7 @@ bashio::log.info "============================================="
 ha_api() {
     local method="$1"
     local endpoint="$2"
-    local data="$3"
+    local data="${3:-}"
 
     if [ -n "$data" ]; then
         curl -s -m 10 -X "$method" \
@@ -188,7 +188,7 @@ MOSQUITTO_SLUG="core_mosquitto"
 supervisor_api() {
     local method="$1"
     local endpoint="$2"
-    local data="$3"
+    local data="${3:-}"
     if [ -n "$data" ]; then
         curl -s -m 30 -X "$method" \
             -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
