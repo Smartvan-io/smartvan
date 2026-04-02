@@ -3,6 +3,10 @@
 # Fetches the integration and cards from GitHub, installs them,
 # creates the dashboard, and configures MQTT + SmartVan.io integration.
 
+# Catch signals so we can see if the container is being killed
+trap 'bashio::log.warning "Received SIGTERM — shutting down"; exit 0' SIGTERM
+trap 'bashio::log.warning "Received SIGINT — shutting down"; exit 0' SIGINT
+
 # ── GitHub repos ─────────────────────────────────────────────
 
 INTEGRATION_REPO="Smartvan-io/integration"
@@ -176,19 +180,34 @@ fi
 bashio::log.info ""
 bashio::log.info "Step 4/5: Checking MQTT broker..."
 
+# Make sure HA API is reachable before querying config entries
+wait_for_ha || bashio::log.warning "  HA API not available, continuing anyway..."
+
 MOSQUITTO_SLUG="core_mosquitto"
 
 supervisor_api() {
-    curl -s -X "$1" \
-        -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
-        -H "Content-Type: application/json" \
-        ${3:+-d "$3"} \
-        "http://supervisor${2}"
+    local method="$1"
+    local endpoint="$2"
+    local data="$3"
+    if [ -n "$data" ]; then
+        curl -s -X "$method" \
+            -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$data" \
+            "http://supervisor${endpoint}" 2>/dev/null || echo "{}"
+    else
+        curl -s -X "$method" \
+            -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "http://supervisor${endpoint}" 2>/dev/null || echo "{}"
+    fi
 }
 
 # Check if MQTT integration is already configured
+bashio::log.info "  Checking existing MQTT configuration..."
 ENTRIES=$(ha_api GET "/config/config_entries/entry" 2>/dev/null || echo "[]")
 MQTT_EXISTS=$(echo "$ENTRIES" | jq -r '[.[] | select(.domain == "mqtt")] | length' 2>/dev/null || echo "0")
+bashio::log.info "  MQTT entries found: ${MQTT_EXISTS}"
 
 if [ "$MQTT_EXISTS" != "0" ]; then
     bashio::log.info "  MQTT already configured — using existing broker"
