@@ -1,0 +1,36 @@
+# SmartVan.io Setup App
+name: "SmartVan.io"
+version: "1.3.0"
+init: false
+slug: "smartvanio"
+description: >-
+  One-click setup for SmartVan.io campervan control system.
+  Installs the integration, dashboard cards, and configures MQTT.
+url: "https://smartvan.io"
+
+arch:
+  - aarch64
+  - amd64
+
+build_from:
+  aarch64: "ghcr.io/home-assistant/aarch64-base:3.21"
+  amd64: "ghcr.io/home-assistant/amd64-base:3.21"
+
+startup: application
+boot: manual
+
+# Needs config directory to install integration + cards + dashboards
+map:
+  - config:rw
+
+options:
+  mqtt_user: "smartvanio"
+  mqtt_password: "smartvanio123"
+
+schema:
+  mqtt_user: str
+  mqtt_password: password
+
+hassio_api: true
+hassio_role: admin
+homeassistant_api: true
