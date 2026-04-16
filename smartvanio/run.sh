@@ -86,24 +86,38 @@ bashio::log.info "Step 1/5: Provisioning MQTT broker..."
 if [ "$MODE" = "supervisor" ]; then
     MOSQUITTO_SLUG="core_mosquitto"
 
-    if bashio::addons.installed "${MOSQUITTO_SLUG}" 2>/dev/null; then
+    # Check if installed (bashio prints true/false to stdout)
+    INSTALLED=$(bashio::addons.installed "${MOSQUITTO_SLUG}" 2>/dev/null || echo "false")
+    if [ "$INSTALLED" = "true" ]; then
         bashio::log.info "  Mosquitto app already installed"
     else
         bashio::log.info "  Installing Mosquitto app..."
-        bashio::addon.install "${MOSQUITTO_SLUG}" 2>/dev/null || {
+        if bashio::addon.install "${MOSQUITTO_SLUG}" 2>/dev/null; then
+            bashio::log.info "  Mosquitto installed"
+        else
             bashio::log.error "  Failed to install Mosquitto — install it manually from the App Store"
-        }
-        sleep 10
+        fi
+        # Wait for install to register
+        sleep 15
     fi
 
-    # Ensure it's running
-    ADDON_STATE=$(bashio::addons.info "${MOSQUITTO_SLUG}" "state" 2>/dev/null || echo "unknown")
-    if [ "${ADDON_STATE}" != "started" ]; then
-        bashio::log.info "  Starting Mosquitto..."
+    # Ensure it's running — retry a few times
+    for attempt in $(seq 1 5); do
+        ADDON_STATE=$(bashio::addons.info "${MOSQUITTO_SLUG}" "state" 2>/dev/null || echo "unknown")
+        if [ "${ADDON_STATE}" = "started" ]; then
+            break
+        fi
+        bashio::log.info "  Starting Mosquitto (attempt ${attempt})..."
         bashio::addon.start "${MOSQUITTO_SLUG}" 2>/dev/null || true
         sleep 5
+    done
+
+    ADDON_STATE=$(bashio::addons.info "${MOSQUITTO_SLUG}" "state" 2>/dev/null || echo "unknown")
+    if [ "${ADDON_STATE}" = "started" ]; then
+        bashio::log.info "  Mosquitto is running"
+    else
+        bashio::log.warning "  Mosquitto state: ${ADDON_STATE} — MQTT may need manual setup"
     fi
-    bashio::log.info "  Mosquitto is running"
     MQTT_HOST="core-mosquitto"
 else
     bashio::log.info "  Skipping Mosquitto install (standalone mode)"
@@ -147,6 +161,12 @@ if curl -sL "${CARD_BASE_URL}/index.js" -o "${CARDS_DIR}/smartvanio-main-card.js
     CARD_SIZE=$(wc -c < "${CARDS_DIR}/smartvanio-main-card.js" | tr -d ' ')
     if [ "$CARD_SIZE" -gt 1000 ]; then
         bashio::log.info "  smartvanio-main-card.js (${CARD_SIZE} bytes)"
+        # Fetch card version from package.json and write version file for update entity
+        CARD_VER=$(curl -sL "${CARD_BASE_URL}/package.json" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('version',''))" 2>/dev/null || echo "")
+        if [ -n "$CARD_VER" ]; then
+            echo "$CARD_VER" > "${CARDS_DIR}/.card_version"
+            bashio::log.info "  Card version: ${CARD_VER}"
+        fi
     else
         bashio::log.error "  smartvanio-main-card.js download looks too small (${CARD_SIZE} bytes)"
     fi
@@ -254,6 +274,23 @@ if [ "$MODE" = "supervisor" ]; then
                     # Mosquitto is installed — select the addon option for auto-config
                     RESULT=$(ha_api POST "/config/config_entries/flow/${FLOW_ID}" \
                         '{"next_step_id":"addon"}' 2>/dev/null)
+                elif [ "$FLOW_TYPE" = "progress" ]; then
+                    # HA is auto-discovering Mosquitto — wait for it
+                    bashio::log.info "  Waiting for Mosquitto auto-discovery..."
+                    RESULT=""
+                    for i in $(seq 1 12); do
+                        sleep 5
+                        RESULT=$(ha_api GET "/config/config_entries/flow/${FLOW_ID}" 2>/dev/null || echo "")
+                        RESULT_TYPE=$(echo "$RESULT" | jq -r '.type // empty' 2>/dev/null)
+                        if [ "$RESULT_TYPE" = "create_entry" ] || [ "$RESULT_TYPE" = "form" ]; then
+                            break
+                        fi
+                    done
+                    # If it became a form, submit it
+                    if [ "$RESULT_TYPE" = "form" ]; then
+                        RESULT=$(ha_api POST "/config/config_entries/flow/${FLOW_ID}" \
+                            '{}' 2>/dev/null)
+                    fi
                 else
                     # No Mosquitto — configure broker manually
                     RESULT=$(ha_api POST "/config/config_entries/flow/${FLOW_ID}" \
@@ -263,7 +300,14 @@ if [ "$MODE" = "supervisor" ]; then
                 if [ "$RESULT_TYPE" = "create_entry" ]; then
                     bashio::log.info "  MQTT configured"
                 else
-                    bashio::log.warning "  MQTT config flow: ${RESULT_TYPE} — configure manually"
+                    # Check if MQTT got auto-configured while we were waiting
+                    ENTRIES=$(ha_api GET "/config/config_entries/entry" 2>/dev/null || echo "[]")
+                    MQTT_NOW=$(echo "$ENTRIES" | jq -r '[.[] | select(.domain == "mqtt")] | length' 2>/dev/null || echo "0")
+                    if [ "$MQTT_NOW" != "0" ]; then
+                        bashio::log.info "  MQTT configured (auto-discovered)"
+                    else
+                        bashio::log.warning "  MQTT config flow: ${RESULT_TYPE} — configure manually"
+                    fi
                 fi
             fi
         else
