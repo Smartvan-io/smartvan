@@ -97,27 +97,26 @@ if [ "$MODE" = "supervisor" ]; then
             "http://supervisor/addons/${MOSQUITTO_SLUG}/${1}" 2>/dev/null
     }
 
-    # Check if installed — must check .data.installed, not .data.state
-    # (state returns "unknown" even for uninstalled addons)
+    # Check if installed — .data.version is non-null when installed
+    # (.data.state returns "unknown" for both uninstalled AND installed-but-stopped)
     MOSQ_INFO=$(mosquitto_api "info")
-    MOSQ_INSTALLED=$(echo "$MOSQ_INFO" | jq -r '.data.installed // false' 2>/dev/null)
+    MOSQ_VER=$(echo "$MOSQ_INFO" | jq -r '.data.version // empty' 2>/dev/null)
     MOSQ_STATE=$(echo "$MOSQ_INFO" | jq -r '.data.state // empty' 2>/dev/null)
 
-    if [ "$MOSQ_INSTALLED" = "true" ]; then
-        bashio::log.info "  Mosquitto app already installed (state: ${MOSQ_STATE})"
+    if [ -n "$MOSQ_VER" ]; then
+        bashio::log.info "  Mosquitto app already installed (v${MOSQ_VER}, state: ${MOSQ_STATE})"
     else
         bashio::log.info "  Installing Mosquitto app..."
         INSTALL_RESULT=$(curl -s -X POST -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
             "http://supervisor/store/addons/${MOSQUITTO_SLUG}/install" 2>/dev/null)
-        bashio::log.info "  Install result: $(echo "$INSTALL_RESULT" | jq -r '.result // .message // "unknown"' 2>/dev/null)"
+        INSTALL_STATUS=$(echo "$INSTALL_RESULT" | jq -r '.result // "unknown"' 2>/dev/null)
+        bashio::log.info "  Install result: ${INSTALL_STATUS}"
         # Wait for install to complete
         for i in $(seq 1 24); do
             sleep 5
-            MOSQ_INFO=$(mosquitto_api "info")
-            MOSQ_INSTALLED=$(echo "$MOSQ_INFO" | jq -r '.data.installed // false' 2>/dev/null)
-            MOSQ_STATE=$(echo "$MOSQ_INFO" | jq -r '.data.state // empty' 2>/dev/null)
-            if [ "$MOSQ_INSTALLED" = "true" ]; then
-                bashio::log.info "  Mosquitto installed (state: ${MOSQ_STATE})"
+            MOSQ_VER=$(mosquitto_api "info" | jq -r '.data.version // empty' 2>/dev/null)
+            if [ -n "$MOSQ_VER" ]; then
+                bashio::log.info "  Mosquitto v${MOSQ_VER} installed"
                 break
             fi
             bashio::log.info "  Waiting for Mosquitto install... (attempt ${i})"
@@ -125,11 +124,12 @@ if [ "$MODE" = "supervisor" ]; then
     fi
 
     # Ensure it's running
+    MOSQ_STATE=$(mosquitto_api "info" | jq -r '.data.state // empty' 2>/dev/null)
     if [ "$MOSQ_STATE" != "started" ]; then
         bashio::log.info "  Starting Mosquitto..."
         mosquitto_api_post "start" >/dev/null
-        for attempt in $(seq 1 10); do
-            sleep 3
+        for attempt in $(seq 1 15); do
+            sleep 5
             MOSQ_STATE=$(mosquitto_api "info" | jq -r '.data.state // empty' 2>/dev/null)
             if [ "$MOSQ_STATE" = "started" ]; then
                 break

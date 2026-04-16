@@ -1,6 +1,6 @@
 # SmartVan.io Setup App
 name: "SmartVan.io"
-version: "2.2.2"
+version: "2.2.3"
 init: false
 slug: "smartvanio"
 description: >-
