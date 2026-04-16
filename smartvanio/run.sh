@@ -86,37 +86,58 @@ bashio::log.info "Step 1/5: Provisioning MQTT broker..."
 if [ "$MODE" = "supervisor" ]; then
     MOSQUITTO_SLUG="core_mosquitto"
 
-    # Check if installed (bashio prints true/false to stdout)
-    INSTALLED=$(bashio::addons.installed "${MOSQUITTO_SLUG}" 2>/dev/null || echo "false")
-    if [ "$INSTALLED" = "true" ]; then
-        bashio::log.info "  Mosquitto app already installed"
+    # Use direct Supervisor API — bashio wrappers unreliable from inside addon containers
+    mosquitto_api() {
+        curl -s -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+            "http://supervisor/addons/${MOSQUITTO_SLUG}/${1}" 2>/dev/null
+    }
+
+    mosquitto_api_post() {
+        curl -s -X POST -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+            "http://supervisor/addons/${MOSQUITTO_SLUG}/${1}" 2>/dev/null
+    }
+
+    # Check if installed
+    MOSQ_INFO=$(mosquitto_api "info")
+    MOSQ_STATE=$(echo "$MOSQ_INFO" | jq -r '.data.state // empty' 2>/dev/null)
+
+    if [ -n "$MOSQ_STATE" ]; then
+        bashio::log.info "  Mosquitto app already installed (state: ${MOSQ_STATE})"
     else
         bashio::log.info "  Installing Mosquitto app..."
-        if bashio::addon.install "${MOSQUITTO_SLUG}" 2>/dev/null; then
-            bashio::log.info "  Mosquitto installed"
-        else
-            bashio::log.error "  Failed to install Mosquitto — install it manually from the App Store"
-        fi
-        # Wait for install to register
-        sleep 15
+        INSTALL_RESULT=$(curl -s -X POST -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+            "http://supervisor/store/addons/${MOSQUITTO_SLUG}/install" 2>/dev/null)
+        bashio::log.info "  Install result: $(echo "$INSTALL_RESULT" | jq -r '.result // .message // "unknown"' 2>/dev/null)"
+        # Wait for install to complete
+        for i in $(seq 1 12); do
+            sleep 5
+            MOSQ_INFO=$(mosquitto_api "info")
+            MOSQ_STATE=$(echo "$MOSQ_INFO" | jq -r '.data.state // empty' 2>/dev/null)
+            if [ -n "$MOSQ_STATE" ]; then
+                bashio::log.info "  Mosquitto installed (state: ${MOSQ_STATE})"
+                break
+            fi
+        done
     fi
 
-    # Ensure it's running — retry a few times
-    for attempt in $(seq 1 5); do
-        ADDON_STATE=$(bashio::addons.info "${MOSQUITTO_SLUG}" "state" 2>/dev/null || echo "unknown")
-        if [ "${ADDON_STATE}" = "started" ]; then
-            break
-        fi
-        bashio::log.info "  Starting Mosquitto (attempt ${attempt})..."
-        bashio::addon.start "${MOSQUITTO_SLUG}" 2>/dev/null || true
-        sleep 5
-    done
+    # Ensure it's running
+    if [ "$MOSQ_STATE" != "started" ]; then
+        bashio::log.info "  Starting Mosquitto..."
+        mosquitto_api_post "start" >/dev/null
+        for attempt in $(seq 1 10); do
+            sleep 3
+            MOSQ_STATE=$(mosquitto_api "info" | jq -r '.data.state // empty' 2>/dev/null)
+            if [ "$MOSQ_STATE" = "started" ]; then
+                break
+            fi
+            bashio::log.info "  Waiting for Mosquitto... (${MOSQ_STATE:-pending})"
+        done
+    fi
 
-    ADDON_STATE=$(bashio::addons.info "${MOSQUITTO_SLUG}" "state" 2>/dev/null || echo "unknown")
-    if [ "${ADDON_STATE}" = "started" ]; then
+    if [ "$MOSQ_STATE" = "started" ]; then
         bashio::log.info "  Mosquitto is running"
     else
-        bashio::log.warning "  Mosquitto state: ${ADDON_STATE} — MQTT may need manual setup"
+        bashio::log.warning "  Mosquitto state: ${MOSQ_STATE:-unknown} — MQTT may need manual setup"
     fi
     MQTT_HOST="core-mosquitto"
 else
