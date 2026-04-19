@@ -343,7 +343,20 @@ if [ "$MODE" = "supervisor" ]; then
         ENTRIES=$(ha_api GET "/config/config_entries/entry" 2>/dev/null || echo "[]")
         SV_EXISTS=$(echo "$ENTRIES" | jq -r '[.[] | select(.domain == "smartvanio")] | length' 2>/dev/null || echo "0")
 
-        if [ "$SV_EXISTS" = "0" ]; then
+        if [ "$SV_EXISTS" != "0" ]; then
+            bashio::log.info "  SmartVan.io already configured"
+        else
+            # The integration files were just cloned into custom_components/ in Step 2,
+            # but HA only scans custom_components/ at startup. Restart HA so the
+            # smartvanio flow handler is registered before we create the config entry.
+            bashio::log.info "  Restarting HA to load the freshly installed integration..."
+            ha_api POST "/services/homeassistant/restart" '{}' >/dev/null 2>&1 || true
+            sleep 30
+            if ! wait_for_ha; then
+                bashio::log.error "  HA restart timed out — re-run this app once HA is back up"
+                exit 1
+            fi
+
             FLOW=$(ha_api POST "/config/config_entries/flow" \
                 '{"handler":"smartvanio","show_advanced_options":false}' 2>/dev/null || echo "")
             FLOW_ID=$(echo "$FLOW" | jq -r '.flow_id // empty' 2>/dev/null)
@@ -359,23 +372,9 @@ if [ "$MODE" = "supervisor" ]; then
                     bashio::log.warning "  Restart HA, then re-run this app"
                 fi
             else
-                # Integration not yet loaded — restart HA and retry
-                bashio::log.info "  Requesting HA restart to load the integration..."
-                ha_api POST "/services/homeassistant/restart" '{}' >/dev/null 2>&1 || true
-                sleep 30
-                if wait_for_ha; then
-                    FLOW=$(ha_api POST "/config/config_entries/flow" \
-                        '{"handler":"smartvanio","show_advanced_options":false}' 2>/dev/null || echo "")
-                    FLOW_ID=$(echo "$FLOW" | jq -r '.flow_id // empty' 2>/dev/null)
-                    if [ -n "$FLOW_ID" ]; then
-                        ha_api POST "/config/config_entries/flow/${FLOW_ID}" \
-                            '{"mqtt_prefix":"smartvanio"}' >/dev/null 2>&1 || true
-                        bashio::log.info "  SmartVan.io integration configured after restart"
-                    fi
-                fi
+                bashio::log.error "  Could not create SmartVan.io config flow"
+                bashio::log.error "  Restart HA, then re-run this app"
             fi
-        else
-            bashio::log.info "  SmartVan.io already configured"
         fi
     fi
 else
