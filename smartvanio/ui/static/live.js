@@ -23,6 +23,10 @@
         const el = document.querySelector(env.target);
         if (!el) return;
         el.innerHTML = env.html;
+        // The injected fragment contains hx-* attributes (e.g. the
+        // device buttons in /ws/devices). Without htmx.process the
+        // new nodes have no click handlers and clicking does nothing.
+        if (window.htmx) window.htmx.process(el);
     }
 
     function attach(host) {
