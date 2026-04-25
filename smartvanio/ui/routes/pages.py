@@ -72,7 +72,69 @@ def _render_inclinometer(device, channels, ha):
     )
 
 
+_INTERPOLATION_KINDS = ["linear", "quadratic", "cubic", "smooth"]
+
+
 def _render_resistive(device, channels, ha):
-    # task #9 builds this out properly; placeholder for now so the
-    # route doesn't 500 if a resistive sensor is selected mid-build.
-    return render_template("device_unknown.html", device=device)
+    sensors = []
+    for n in (1, 2):
+        # Channel names in the firmware (note: "theshold" typo is real,
+        # firmware-side; we mirror it so the HA unique_id lookup matches).
+        ch = {
+            "raw": channels.get(f"sensor_{n}_raw"),
+            "interpolated": channels.get(f"sensor_{n}_interpolated_value"),
+            "points": channels.get(f"sensor_{n}_interpolation_points"),
+            "kind": channels.get(f"sensor_{n}_interpolation_kind"),
+            "min_r": channels.get(f"sensor_{n}_min_resistance"),
+            "max_r": channels.get(f"sensor_{n}_max_resistance"),
+            "threshold": channels.get(f"sensor_{n}_open_circuit_voltage_theshold"),
+            "open": channels.get(f"sensor_{n}_input_open"),
+        }
+
+        def _state(channel):
+            eid = ch.get(channel)
+            return ha.get_state(eid) if eid else None
+
+        kind_state = _state("kind")
+        kind_options = ((kind_state or {}).get("attributes") or {}).get(
+            "options"
+        ) or _INTERPOLATION_KINDS
+
+        sensors.append(
+            {
+                "n": n,
+                "raw_value": (_state("raw") or {}).get("state"),
+                "interpolated_value": (_state("interpolated") or {}).get("state"),
+                "points": _parse_points((_state("points") or {}).get("state", "[]")),
+                "kind_value": (kind_state or {}).get("state"),
+                "kind_options": kind_options,
+                "min_r": (_state("min_r") or {}).get("state", ""),
+                "max_r": (_state("max_r") or {}).get("state", ""),
+                "threshold": (_state("threshold") or {}).get("state", ""),
+                "input_open": (_state("open") or {}).get("state") == "on",
+            }
+        )
+
+    return render_template("resistive.html", device=device, sensors=sensors)
+
+
+def _parse_points(raw: str) -> list[list[float]]:
+    """Tolerant decoder for the interpolation_points text entity.
+
+    Accepts a JSON list-of-lists. Returns [] on any parse failure so
+    the editor renders a clean empty state rather than 500-ing on
+    malformed device payloads.
+    """
+    import json
+
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, list):
+            return []
+        out: list[list[float]] = []
+        for pair in data:
+            if isinstance(pair, list) and len(pair) >= 2:
+                out.append([float(pair[0]), float(pair[1])])
+        return out
+    except (ValueError, TypeError):
+        return []

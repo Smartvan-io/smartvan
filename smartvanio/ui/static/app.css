@@ -198,3 +198,37 @@ button.secondary:hover { background: #11141a; }
 .result { min-height: 1.4em; margin-top: 8px; font-size: 0.9rem; }
 .result-ok { color: var(--ok); }
 .result-warn { color: var(--warn); }
+
+h3 { font-size: 0.95rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 18px 0 8px; }
+
+.points-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: #0a0c10;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+}
+.point-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.point-row input[type=number] {
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 0.9rem;
+    width: 100px;
+}
+.remove-point {
+    width: 30px;
+    padding: 4px 0;
+    text-align: center;
+}
+
+label { display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; }
+label input[type=number] { width: 130px; }

@@ -11,6 +11,7 @@ All routes return small HTML fragments suitable for hx-target swap.
 
 from __future__ import annotations
 
+import json
 import logging
 
 from flask import Blueprint, abort, render_template, request
@@ -129,3 +130,144 @@ def press_calibration_button(device_id: str, action: str, axis: str):
         return _result_partial(False, f"HA rejected: {exc}"), 400
 
     return _result_partial(True, label)
+
+
+# ── Resistive sensor ──────────────────────────────────────────
+
+
+def _collect_points(form) -> list[list[float]]:
+    """Read v_0/p_0, v_1/p_1, … pairs from a posted form.
+
+    Skips rows where either input is blank or non-numeric — lets a
+    user partially clear a row without bringing the whole form down.
+    Sorted ascending by voltage so the on-device interpolation gets
+    monotone input regardless of the order rows were entered.
+    """
+    pairs: list[list[float]] = []
+    i = 0
+    while True:
+        v_raw = form.get(f"v_{i}")
+        p_raw = form.get(f"p_{i}")
+        if v_raw is None and p_raw is None:
+            break
+        try:
+            pairs.append([float(v_raw), float(p_raw)])
+        except (TypeError, ValueError):
+            pass
+        i += 1
+    pairs.sort(key=lambda x: x[0])
+    return pairs
+
+
+def _render_points_editor(device_id: str, n: int, points: list[list[float]]):
+    return render_template(
+        "partials/points_editor.html",
+        device_id=device_id,
+        n=n,
+        points=points,
+    )
+
+
+@bp.post("/device/<device_id>/resistive/<int:n>/points/add")
+def points_add(device_id: str, n: int):
+    _device_or_404(device_id)
+    points = _collect_points(request.form)
+    points.append([0.0, 0.0])
+    return _render_points_editor(device_id, n, points)
+
+
+@bp.post("/device/<device_id>/resistive/<int:n>/points/remove")
+def points_remove(device_id: str, n: int):
+    _device_or_404(device_id)
+    points = _collect_points(request.form)
+    try:
+        index = int(request.form.get("index", "-1"))
+    except ValueError:
+        index = -1
+    if 0 <= index < len(points):
+        del points[index]
+    return _render_points_editor(device_id, n, points)
+
+
+@bp.post("/device/<device_id>/resistive/<int:n>/points/save")
+def points_save(device_id: str, n: int):
+    ha, _ = _device_or_404(device_id)
+    entity_id = _entity_or_400(ha, device_id, f"sensor_{n}_interpolation_points")
+    points = _collect_points(request.form)
+    payload = json.dumps(points)
+    try:
+        ha.call_service(
+            "text",
+            "set_value",
+            service_data={"value": payload},
+            target={"entity_id": entity_id},
+        )
+    except HAServiceError as exc:
+        return _result_partial(False, f"HA rejected: {exc}"), 400
+
+    confirmed = ha.wait_for_state(
+        entity_id, lambda s: s is not None and s.get("state") == payload
+    )
+    if not confirmed:
+        return _result_partial(False, "saved, but the device didn't acknowledge — is it online?")
+    return _result_partial(True, f"saved {len(points)} point(s)")
+
+
+@bp.post("/device/<device_id>/resistive/<int:n>/<field>")
+def set_resistive_number_or_select(device_id: str, n: int, field: str):
+    """Catch-all for the simpler per-sensor settings."""
+    field_to_channel_and_kind = {
+        "min-resistance": (f"sensor_{n}_min_resistance", "number"),
+        "max-resistance": (f"sensor_{n}_max_resistance", "number"),
+        "threshold": (f"sensor_{n}_open_circuit_voltage_theshold", "number"),
+        "interpolation-kind": (f"sensor_{n}_interpolation_kind", "select"),
+    }
+    spec = field_to_channel_and_kind.get(field)
+    if spec is None:
+        abort(404)
+    channel, kind = spec
+
+    ha, _ = _device_or_404(device_id)
+    entity_id = _entity_or_400(ha, device_id, channel)
+
+    if kind == "number":
+        raw = request.form.get("value", "").strip()
+        try:
+            value = float(raw)
+        except ValueError:
+            return _result_partial(False, f"value {raw!r} isn't a number"), 400
+        try:
+            ha.call_service(
+                "number",
+                "set_value",
+                service_data={"value": value},
+                target={"entity_id": entity_id},
+            )
+        except HAServiceError as exc:
+            return _result_partial(False, f"HA rejected: {exc}"), 400
+        confirmed = ha.wait_for_state(
+            entity_id,
+            lambda s: s is not None and abs(float(s.get("state", "nan")) - value) < 0.01,
+        )
+        if not confirmed:
+            return _result_partial(False, "saved, but the device didn't acknowledge — is it online?")
+        return _result_partial(True, f"saved: {value}")
+    else:  # select
+        option = request.form.get("option", "").strip()
+        if not option:
+            return _result_partial(False, "missing option"), 400
+        try:
+            ha.call_service(
+                "select",
+                "select_option",
+                service_data={"option": option},
+                target={"entity_id": entity_id},
+            )
+        except HAServiceError as exc:
+            return _result_partial(False, f"HA rejected: {exc}"), 400
+        confirmed = ha.wait_for_state(
+            entity_id, lambda s: s is not None and s.get("state") == option
+        )
+        if not confirmed:
+            return _result_partial(False, "saved, but the device didn't acknowledge — is it online?")
+        return _result_partial(True, f"saved: {option}")

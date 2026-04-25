@@ -1,0 +1,40 @@
+{# Self-contained interpolation-points editor. Add/Remove buttons
+   hx-post the entire form back; the server returns this same partial
+   with rows added or removed. Save serialises to JSON server-side. #}
+<form id="points-form-{{ n }}" class="points-editor">
+    {% if points %}
+        {% for v, p in points %}
+        <div class="point-row">
+            <input type="number" name="v_{{ loop.index0 }}" step="any" value="{{ v }}" />
+            <span class="muted">V →</span>
+            <input type="number" name="p_{{ loop.index0 }}" step="any" value="{{ p }}" />
+            <button
+                type="button"
+                class="secondary remove-point"
+                hx-post="{{ url_for('api.points_remove', device_id=device_id, n=n) }}"
+                hx-include="#points-form-{{ n }}"
+                hx-vals='{"index": {{ loop.index0 }}}'
+                hx-target="#points-editor-{{ n }}"
+            >×</button>
+        </div>
+        {% endfor %}
+    {% else %}
+        <p class="muted">No points yet — add some.</p>
+    {% endif %}
+
+    <div class="button-row">
+        <button
+            type="button"
+            class="secondary"
+            hx-post="{{ url_for('api.points_add', device_id=device_id, n=n) }}"
+            hx-include="#points-form-{{ n }}"
+            hx-target="#points-editor-{{ n }}"
+        >+ Add point</button>
+        <button
+            type="button"
+            hx-post="{{ url_for('api.points_save', device_id=device_id, n=n) }}"
+            hx-include="#points-form-{{ n }}"
+            hx-target="#points-result-{{ n }}"
+        >Save</button>
+    </div>
+</form>

@@ -132,19 +132,33 @@ def _channel_for_entity(ha, device_id: str, entity_id: str) -> str | None:
 # Channels that have a corresponding live partial. Anything else is
 # ignored so we don't waste bandwidth pushing buttons / configs.
 _INCLINOMETER_LIVE_CHANNELS = {
-    "adjusted_pitch_angle": ("#live-pitch", "partials/inclinometer_angle.html", "pitch"),
-    "adjusted_roll_angle": ("#live-roll", "partials/inclinometer_angle.html", "roll"),
+    "adjusted_pitch_angle": ("#live-pitch", "partials/inclinometer_angle.html", {"axis": "pitch"}),
+    "adjusted_roll_angle": ("#live-roll", "partials/inclinometer_angle.html", {"axis": "roll"}),
+}
+
+# {channel: (target_id, template, extra_render_vars)}
+_RESISTIVE_LIVE_CHANNELS = {
+    "sensor_1_raw": ("#live-raw-1", "partials/resistive_value.html", {"axis": "raw voltage", "unit": "V"}),
+    "sensor_2_raw": ("#live-raw-2", "partials/resistive_value.html", {"axis": "raw voltage", "unit": "V"}),
+    "sensor_1_interpolated_value": ("#live-interp-1", "partials/resistive_value.html", {"axis": "interpolated", "unit": ""}),
+    "sensor_2_interpolated_value": ("#live-interp-2", "partials/resistive_value.html", {"axis": "interpolated", "unit": ""}),
 }
 
 
 def _render_channel_envelope(device, model: str, channel: str, state):
-    if "inclinometer" in model and channel in _INCLINOMETER_LIVE_CHANNELS:
-        target, template, axis = _INCLINOMETER_LIVE_CHANNELS[channel]
-        with current_app.test_request_context(f"/device/{device['device_id']}"):
-            html = render_template(
-                template,
-                axis=axis,
-                value=(state or {}).get("state"),
-            )
-        return {"target": target, "html": html}
-    return None
+    if "inclinometer" in model:
+        spec = _INCLINOMETER_LIVE_CHANNELS.get(channel)
+    elif "resistive" in model or "tank" in model:
+        spec = _RESISTIVE_LIVE_CHANNELS.get(channel)
+    else:
+        spec = None
+    if spec is None:
+        return None
+    target, template, extras = spec
+    with current_app.test_request_context(f"/device/{device['device_id']}"):
+        html = render_template(
+            template,
+            value=(state or {}).get("state"),
+            **extras,
+        )
+    return {"target": target, "html": html}
