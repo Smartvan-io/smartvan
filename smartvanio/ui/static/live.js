@@ -1,50 +1,82 @@
-// Spike-scope WS client. Opens /ws/echo relative to the current
-// document location (so it inherits the Ingress prefix automatically),
-// echoes whatever the form submits, logs round-trips.
+// Generic WebSocket fragment-replacer.
 //
-// Will be generalised in task #7 (HA WS client + device list page) into
-// a fragment-replacement helper that listens on /ws/devices and
-// /ws/device/<id> and swaps named DOM regions with incoming HTML.
+// For every element with `data-ws="/ws/path"`, opens a WS to that
+// path (relative to current document location, so the Ingress prefix
+// is preserved automatically) and replaces named DOM regions when
+// envelopes arrive of the form:
+//   { "target": "#some-id", "html": "<...>" }
+//
+// Auto-reconnects with exponential backoff. The browser closes the WS
+// when the page is navigated away, which is fine.
 
 (function () {
     "use strict";
 
     function wsUrl(path) {
         const proto = location.protocol === "https:" ? "wss:" : "ws:";
-        // Strip trailing slash on the base path so we can concatenate cleanly.
         const base = location.pathname.replace(/\/$/, "");
         return `${proto}//${location.host}${base}${path}`;
     }
 
-    function init() {
-        const form = document.getElementById("ws-form");
-        const input = document.getElementById("ws-input");
-        const log = document.getElementById("ws-log");
-        if (!form || !input || !log) return;
+    function applyEnvelope(env) {
+        if (!env || !env.target) return;
+        const el = document.querySelector(env.target);
+        if (!el) return;
+        // Replace inner HTML, not outerHTML, so the host element's id
+        // and data attributes (including data-ws) survive the swap.
+        el.innerHTML = env.html;
+    }
 
-        const append = (line) => {
-            log.textContent += line + "\n";
-            log.scrollTop = log.scrollHeight;
-        };
+    function attach(host) {
+        const path = host.getAttribute("data-ws");
+        if (!path) return;
+        let ws = null;
+        let backoff = 1000;
+        let stopped = false;
 
-        const ws = new WebSocket(wsUrl("/ws/echo"));
-        ws.addEventListener("open", () => append("[ws] open"));
-        ws.addEventListener("close", () => append("[ws] closed"));
-        ws.addEventListener("error", () => append("[ws] error"));
-        ws.addEventListener("message", (ev) => append(`< ${ev.data}`));
+        function open() {
+            if (stopped) return;
+            ws = new WebSocket(wsUrl(path));
+            ws.addEventListener("open", () => {
+                backoff = 1000;
+                host.dataset.wsState = "open";
+            });
+            ws.addEventListener("message", (ev) => {
+                let env;
+                try {
+                    env = JSON.parse(ev.data);
+                } catch (e) {
+                    return;
+                }
+                applyEnvelope(env);
+            });
+            ws.addEventListener("close", () => {
+                host.dataset.wsState = "closed";
+                if (stopped) return;
+                setTimeout(open, backoff);
+                backoff = Math.min(backoff * 2, 15000);
+            });
+            ws.addEventListener("error", () => {
+                try { ws.close(); } catch (e) {}
+            });
+        }
 
-        form.addEventListener("submit", (ev) => {
-            ev.preventDefault();
-            const value = input.value.trim();
-            if (!value) return;
-            if (ws.readyState !== WebSocket.OPEN) {
-                append("[ws] not open");
-                return;
+        open();
+
+        // If the host element is removed from the DOM (e.g. by a
+        // future page-level fragment swap), tear down the WS.
+        const observer = new MutationObserver(() => {
+            if (!document.contains(host)) {
+                stopped = true;
+                if (ws) try { ws.close(); } catch (e) {}
+                observer.disconnect();
             }
-            append(`> ${value}`);
-            ws.send(value);
-            input.value = "";
         });
+        observer.observe(document.body, { childList: true, subtree: true });
+    }
+
+    function init() {
+        document.querySelectorAll("[data-ws]").forEach(attach);
     }
 
     if (document.readyState === "loading") {

@@ -1,20 +1,21 @@
-"""Flask app factory for the SmartVan.io add-on UI.
-
-Spike scope: one HTTP page that proves Ingress + SCRIPT_NAME shim +
-SUPERVISOR_TOKEN round-trip to HA. One flask-sock WebSocket echo route
-that proves Ingress upgrades WS through the supervisor proxy.
-"""
+"""Flask app factory for the SmartVan.io add-on UI."""
 
 from __future__ import annotations
 
+import logging
 import os
 
 import requests
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, request
 from flask_sock import Sock
+
+from .ha_client import get_client
+from .routes import pages, ws
 
 SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
 SUPERVISOR_CORE_API = "http://supervisor/core/api"
+
+logger = logging.getLogger(__name__)
 
 
 class IngressPrefixMiddleware:
@@ -40,43 +41,44 @@ class IngressPrefixMiddleware:
 
 
 def create_app() -> Flask:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.wsgi_app = IngressPrefixMiddleware(app.wsgi_app)
     sock = Sock(app)
 
-    @app.get("/")
-    def index():
-        ha_status = _probe_ha()
-        return render_template("index.html", ha_status=ha_status)
+    app.register_blueprint(pages.bp)
+    ws.register(sock)
+
+    # Touch the singleton so the persistent HA WS greenlet starts as
+    # part of app construction, not lazily on first request.
+    get_client()
 
     @app.get("/healthz")
     def healthz():
-        return jsonify({"ok": True})
+        return jsonify({"ok": True, "ha_ready": get_client().is_ready()})
 
     @app.get("/api/ha-ping")
     def ha_ping():
         return jsonify(_probe_ha())
 
     @sock.route("/ws/echo")
-    def ws_echo(ws):
-        # Trivial echo so we can prove Ingress upgrades the WS and that
-        # waitress + flask-sock + simple-websocket play together.
+    def ws_echo(_ws):
+        # Spike-era echo, kept as a smoke-test endpoint. Safe to remove
+        # once /ws/devices and /ws/device/<id> are exercised in real use.
         while True:
-            msg = ws.receive()
+            msg = _ws.receive()
             if msg is None:
                 break
-            ws.send(f"echo: {msg}")
+            _ws.send(f"echo: {msg}")
 
     return app
 
 
 def _probe_ha() -> dict:
-    """Hit GET /api/ on HA core via the Supervisor proxy.
-
-    Returns a structured result so the index page can show whether the
-    SUPERVISOR_TOKEN round-trip works without dumping internals to the
-    user. Used during spike to confirm auth + reachability.
-    """
     if not SUPERVISOR_TOKEN:
         return {"ok": False, "reason": "SUPERVISOR_TOKEN not set"}
     try:

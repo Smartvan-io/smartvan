@@ -1,0 +1,19 @@
+{% if devices %}
+    <ul class="device-list">
+    {% for device in devices %}
+        <li class="device">
+            <div class="device-name">{{ device.name }}</div>
+            <div class="device-meta">
+                <span class="badge">{{ device.model }}</span>
+                {% if device.sw_version %}<span class="muted">fw {{ device.sw_version }}</span>{% endif %}
+                <span class="muted">{{ device.device_id }}</span>
+            </div>
+        </li>
+    {% endfor %}
+    </ul>
+{% else %}
+    <p class="empty">
+        No devices discovered yet. Power on a SmartVan.io device and wait
+        a few seconds — they appear here automatically.
+    </p>
+{% endif %}
