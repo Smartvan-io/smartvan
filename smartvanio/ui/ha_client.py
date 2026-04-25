@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -69,6 +70,8 @@ class HAClient:
         self._device_entities: dict[str, set[str]] = {}
         # entity_id -> device_id (reverse lookup for fast event routing)
         self._entity_to_device: dict[str, str] = {}
+        # device_id -> {channel: entity_id} (channel = unique_id minus "{device_id}_" prefix)
+        self._channel_index: dict[str, dict[str, str]] = {}
         # entity_id -> last-known state dict {state, attributes, ...}
         self._states: dict[str, dict[str, Any]] = {}
         self._listener_lock = RLock()
@@ -113,6 +116,53 @@ class HAClient:
 
     def get_entities_for_device(self, device_id: str) -> list[str]:
         return sorted(self._device_entities.get(device_id, ()))
+
+    def entity_id_for(self, device_id: str, channel: str) -> str | None:
+        """Map (device_id, channel) -> HA entity_id.
+
+        `channel` is the firmware-side suffix (e.g. "pitch_adjustment_angle",
+        "calibrate_pitch", "orientation"). This decouples the addon's UI
+        from how HA happens to slug an entity_id; the integration's
+        unique_id pattern of f"{device_id}_{channel}" is the contract
+        and it's stable across firmware revisions.
+        """
+        return self._channel_index.get(device_id, {}).get(channel)
+
+    def channels_for_device(self, device_id: str) -> dict[str, str]:
+        """All known channel -> entity_id pairs for a device."""
+        return dict(self._channel_index.get(device_id, {}))
+
+    def wait_for_state(
+        self,
+        entity_id: str,
+        predicate: Callable[[dict[str, Any] | None], bool],
+        timeout: float = 5.0,
+        poll_interval: float = 0.1,
+    ) -> bool:
+        """Block until `predicate(get_state(entity_id))` is true, or timeout.
+
+        Used after a service write to confirm the new value actually
+        landed: ESPHome devices that are offline accept service calls
+        with HTTP 200 but the entity state never updates. Routes call
+        this to surface a warning to the user instead of silently
+        succeeding.
+
+        Returns True if the predicate became true within the window,
+        False on timeout. Cheap polling because we already have a live
+        state cache fed by the state_changed subscription — there's
+        no extra network call per poll.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                if predicate(self._states.get(entity_id)):
+                    return True
+            except Exception:
+                logger.exception("wait_for_state predicate raised")
+                return False
+            if time.monotonic() >= deadline:
+                return False
+            gevent.sleep(poll_interval)
 
     def add_entity_listener(
         self, device_id: str, cb: EntityListener
@@ -269,6 +319,7 @@ class HAClient:
         entities = self._send_and_await({"type": "config/entity_registry/list"}) or []
         device_entities: dict[str, set[str]] = {d: set() for d in self._devices}
         entity_to_device: dict[str, str] = {}
+        channel_index: dict[str, dict[str, str]] = {d: {} for d in self._devices}
         for entry in entities:
             ha_dev_id = entry.get("device_id")
             if ha_dev_id not in smartvanio_ha_ids:
@@ -280,6 +331,15 @@ class HAClient:
             device_entities[our_dev_id].add(entity_id)
             entity_to_device[entity_id] = our_dev_id
 
+            # Derive channel from unique_id. Integration sets it to
+            # f"{device_id}_{channel}" — strip the prefix to recover
+            # the firmware-side channel name.
+            unique_id = entry.get("unique_id") or ""
+            prefix = f"{our_dev_id}_"
+            if unique_id.startswith(prefix):
+                channel = unique_id[len(prefix):]
+                channel_index[our_dev_id][channel] = entity_id
+
         states_raw = self._send_and_await({"type": "get_states"}) or []
         states: dict[str, dict[str, Any]] = {}
         for st in states_raw:
@@ -289,6 +349,7 @@ class HAClient:
 
         self._device_entities = device_entities
         self._entity_to_device = entity_to_device
+        self._channel_index = channel_index
         self._states = states
 
     def _read_loop(self, ws) -> None:

@@ -1,13 +1,15 @@
 {% if devices %}
     <ul class="device-list">
     {% for device in devices %}
-        <li class="device">
-            <div class="device-name">{{ device.name }}</div>
-            <div class="device-meta">
-                <span class="badge">{{ device.model }}</span>
-                {% if device.sw_version %}<span class="muted">fw {{ device.sw_version }}</span>{% endif %}
-                <span class="muted">{{ device.device_id }}</span>
-            </div>
+        <li>
+            <a class="device" href="{{ url_for('pages.device_detail', device_id=device.device_id) }}">
+                <div class="device-name">{{ device.name }}</div>
+                <div class="device-meta">
+                    <span class="badge">{{ device.model }}</span>
+                    {% if device.sw_version %}<span class="muted">fw {{ device.sw_version }}</span>{% endif %}
+                    <span class="muted">{{ device.device_id }}</span>
+                </div>
+            </a>
         </li>
     {% endfor %}
     </ul>

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block content %}
+<nav class="breadcrumb">
+    <a href="{{ url_for('pages.index') }}">← Devices</a>
+</nav>
+
+<header class="device-header">
+    <h1>{{ device.name }}</h1>
+    <div class="muted">
+        <span class="badge">{{ device.model }}</span>
+        {% if device.sw_version %}<span>fw {{ device.sw_version }}</span>{% endif %}
+        <span>{{ device.device_id }}</span>
+    </div>
+</header>
+
+{% block device_body %}{% endblock %}
+{% endblock %}

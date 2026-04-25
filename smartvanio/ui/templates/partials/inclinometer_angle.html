@@ -1,0 +1,11 @@
+{% set axis = axis|default("pitch") %}
+<div class="angle-card">
+    <div class="angle-axis">{{ axis|capitalize }}</div>
+    <div class="angle-value">
+        {% if value is none or value in ("unknown", "unavailable") %}
+            <span class="muted">—</span>
+        {% else %}
+            {{ value }}<span class="angle-unit">°</span>
+        {% endif %}
+    </div>
+</div>

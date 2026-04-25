@@ -10,7 +10,7 @@ from flask import Flask, jsonify, request
 from flask_sock import Sock
 
 from .ha_client import get_client
-from .routes import pages, ws
+from .routes import api, pages, ws
 
 SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
 SUPERVISOR_CORE_API = "http://supervisor/core/api"
@@ -51,6 +51,7 @@ def create_app() -> Flask:
     sock = Sock(app)
 
     app.register_blueprint(pages.bp)
+    app.register_blueprint(api.bp)
     ws.register(sock)
 
     # Touch the singleton so the persistent HA WS greenlet starts as

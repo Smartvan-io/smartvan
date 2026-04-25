@@ -17,6 +17,9 @@ import logging
 from typing import Any
 
 import gevent
+import gevent.event
+import gevent.lock
+import gevent.queue
 from flask import Blueprint, current_app, render_template
 from flask_sock import Sock
 from gevent.queue import Queue
@@ -64,3 +67,84 @@ def register(sock: Sock) -> None:
             logger.debug("/ws/devices client gone", exc_info=True)
         finally:
             unsubscribe()
+
+    @sock.route("/ws/device/<device_id>")
+    def ws_device(ws, device_id: str):
+        """Push live entity-state fragments for a single device.
+
+        Coalesces per-target updates so a slow client never gets a
+        backlog. The page template marks live regions with both an
+        id and a data-channel attribute; this handler renders one
+        partial per channel based on the firmware-side channel name.
+        """
+        ha = get_client()
+        device = ha.get_device(device_id)
+        if device is None:
+            ws.close()
+            return
+
+        # Per-channel coalescing queue. Each item is a (channel, state)
+        # pair. We only keep the latest pending state per channel —
+        # if the device fires faster than the browser can render, we
+        # render the most recent value once and skip the intermediates.
+        latest: dict[str, dict[str, Any] | None] = {}
+        wakeup = gevent.event.Event()
+        pending_lock = gevent.lock.Semaphore()
+
+        def on_entity(entity_id: str, state: dict[str, Any] | None) -> None:
+            channel = _channel_for_entity(ha, device_id, entity_id)
+            if channel is None:
+                return
+            with pending_lock:
+                latest[channel] = state
+            wakeup.set()
+
+        unsubscribe = ha.add_entity_listener(device_id, on_entity)
+        model = (device.get("model") or "").lower()
+
+        try:
+            while True:
+                wakeup.wait()
+                with pending_lock:
+                    snapshot = dict(latest)
+                    latest.clear()
+                    wakeup.clear()
+                for channel, state in snapshot.items():
+                    envelope = _render_channel_envelope(
+                        device, model, channel, state
+                    )
+                    if envelope is None:
+                        continue
+                    ws.send(json.dumps(envelope))
+        except Exception:
+            logger.debug("/ws/device/%s client gone", device_id, exc_info=True)
+        finally:
+            unsubscribe()
+
+
+def _channel_for_entity(ha, device_id: str, entity_id: str) -> str | None:
+    for channel, eid in ha.channels_for_device(device_id).items():
+        if eid == entity_id:
+            return channel
+    return None
+
+
+# Channels that have a corresponding live partial. Anything else is
+# ignored so we don't waste bandwidth pushing buttons / configs.
+_INCLINOMETER_LIVE_CHANNELS = {
+    "adjusted_pitch_angle": ("#live-pitch", "partials/inclinometer_angle.html", "pitch"),
+    "adjusted_roll_angle": ("#live-roll", "partials/inclinometer_angle.html", "roll"),
+}
+
+
+def _render_channel_envelope(device, model: str, channel: str, state):
+    if "inclinometer" in model and channel in _INCLINOMETER_LIVE_CHANNELS:
+        target, template, axis = _INCLINOMETER_LIVE_CHANNELS[channel]
+        with current_app.test_request_context(f"/device/{device['device_id']}"):
+            html = render_template(
+                template,
+                axis=axis,
+                value=(state or {}).get("state"),
+            )
+        return {"target": target, "html": html}
+    return None
