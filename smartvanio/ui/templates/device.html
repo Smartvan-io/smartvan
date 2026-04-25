@@ -1,18 +1,15 @@
-{% extends "base.html" %}
-
-{% block content %}
-<nav class="breadcrumb">
-    <a href="{{ url_for('pages.index') }}">← Devices</a>
-</nav>
-
-<header class="device-header">
-    <h1>{{ device.name }}</h1>
-    <div class="muted">
-        <span class="badge">{{ device.model }}</span>
-        {% if device.sw_version %}<span>fw {{ device.sw_version }}</span>{% endif %}
-        <span>{{ device.device_id }}</span>
+<header class="modal-header">
+    <div>
+        <div class="modal-title">{{ device.name }}</div>
+        <div class="modal-subtitle">
+            <span class="badge">{{ device.model }}</span>
+            {% if device.sw_version %}<span>fw {{ device.sw_version }}</span>{% endif %}
+            <span>{{ device.device_id }}</span>
+        </div>
     </div>
+    <button type="button" class="modal-close" data-modal-close aria-label="Close">×</button>
 </header>
 
-{% block device_body %}{% endblock %}
-{% endblock %}
+<div class="modal-body">
+    {% block device_body %}{% endblock %}
+</div>

@@ -2,14 +2,20 @@
     <ul class="device-list">
     {% for device in devices %}
         <li>
-            <a class="device" href="{{ url_for('pages.device_detail', device_id=device.device_id) }}">
+            <button
+                type="button"
+                class="device"
+                hx-get="{{ url_for('pages.device_detail', device_id=device.device_id) }}"
+                hx-target="#device-modal-content"
+                hx-swap="innerHTML"
+            >
                 <div class="device-name">{{ device.name }}</div>
                 <div class="device-meta">
                     <span class="badge">{{ device.model }}</span>
                     {% if device.sw_version %}<span class="muted">fw {{ device.sw_version }}</span>{% endif %}
                     <span class="muted">{{ device.device_id }}</span>
                 </div>
-            </a>
+            </button>
         </li>
     {% endfor %}
     </ul>

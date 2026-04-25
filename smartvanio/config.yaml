@@ -1,6 +1,6 @@
 # SmartVan.io Setup App
 name: "SmartVan.io"
-version: "3.0.6-dev"
+version: "3.0.7-dev"
 slug: "smartvanio"
 description: >-
   One-click setup + calibration UI for SmartVan.io campervan control system.

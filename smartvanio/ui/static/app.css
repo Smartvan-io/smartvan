@@ -128,8 +128,96 @@ button:hover { filter: brightness(1.1); }
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
-a.device { color: inherit; display: block; }
-a.device:hover { background: #11141a; text-decoration: none; }
+button.device {
+    color: inherit;
+    background: #0a0c10;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+button.device:hover { background: #11141a; }
+
+/* ── Device modal ──── */
+.device-modal {
+    background: var(--card);
+    color: var(--fg);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 0;
+    width: min(720px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+}
+.device-modal::backdrop {
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+}
+.device-modal[open] {
+    display: flex;
+    flex-direction: column;
+}
+#device-modal-content {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    max-height: calc(100vh - 32px);
+}
+.modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    flex-shrink: 0;
+}
+.modal-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+.modal-subtitle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    color: var(--muted);
+    font-size: 0.82rem;
+    margin-top: 6px;
+}
+.modal-close {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    line-height: 1;
+    font-size: 1.3rem;
+    padding: 0;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.modal-close:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--fg);
+}
+.modal-body {
+    padding: 18px 20px 20px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+}
+.modal-body > .card:last-child { margin-bottom: 0; }
 
 .breadcrumb { margin-bottom: 12px; font-size: 0.9rem; }
 
