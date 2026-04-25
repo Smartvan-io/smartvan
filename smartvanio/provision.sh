@@ -27,18 +27,23 @@ MQTT_PASSWORD=$(bashio::config 'mqtt_password' 2>/dev/null || echo "")
 MQTT_USER="${MQTT_USER:-smartvanio}"
 MQTT_PASSWORD="${MQTT_PASSWORD:-smartvanio123}"
 
-INTEGRATION_REPO="https://github.com/Smartvan-io/smartvanio-integration.git"
+INTEGRATION_REPO="https://github.com/Smartvan-io/integration.git"
 CHANNEL=$(bashio::config 'channel' 2>/dev/null || echo "stable")
-# stable -> main, beta -> beta. Public release tags can replace this once cut.
+
+# TEMP for v1 testing — until we cut v2 release tags and merge to
+# main on each repo:
+#   - integration v2 (MQTT-only) lives on `beta`. main is still the
+#     old v1.0.6 ESPHome-API version that errors with
+#     "Requirements for smartvanio not found: ['aioesphomeapi==29.0.0']".
+#   - cards v2 (display-only + variants) lives on
+#     `feature-v1-public-release`. main is still v1.x with the
+#     in-card config UI we replaced.
+# Both channels temporarily point at the working branches.
 if [ "$CHANNEL" = "beta" ]; then
     INTEGRATION_BRANCH="beta"
     CARD_BRANCH="beta"
 else
-    INTEGRATION_BRANCH="main"
-    # TEMP for v1 testing: cards' main branches still hold the v1.0
-    # release that has the in-card config UI we replaced. Point the
-    # stable channel at the new feature branch on each card repo
-    # until we tag v2.0.0 and merge to main.
+    INTEGRATION_BRANCH="beta"
     CARD_BRANCH="feature-v1-public-release"
 fi
 
