@@ -31,13 +31,19 @@ INTEGRATION_REPO="https://github.com/Smartvan-io/smartvanio-integration.git"
 CHANNEL=$(bashio::config 'channel' 2>/dev/null || echo "stable")
 # stable -> main, beta -> beta. Public release tags can replace this once cut.
 if [ "$CHANNEL" = "beta" ]; then
-    INTEGRATION_BRANCH="beta"
-    CARD_BASE_URL="https://raw.githubusercontent.com/Smartvan-io/smartvanio-main-card/refs/heads/beta"
+    BRANCH="beta"
 else
-    INTEGRATION_BRANCH="main"
-    CARD_BASE_URL="https://raw.githubusercontent.com/Smartvan-io/smartvanio-main-card/refs/heads/main"
+    BRANCH="main"
 fi
-bashio::log.info "  Channel: ${CHANNEL} (integration=${INTEGRATION_BRANCH})"
+INTEGRATION_BRANCH="$BRANCH"
+
+# Each sensor card lives in its own repo. Both branches are tracked
+# in lockstep with the integration; replace with `tags/<rel>` once
+# we cut a public release tag.
+INCLINOMETER_CARD_URL="https://raw.githubusercontent.com/Smartvan-io/smartvanio-inclinometer-card/refs/heads/${BRANCH}"
+RESISTIVE_CARD_URL="https://raw.githubusercontent.com/Smartvan-io/smartvanio-resistive-sensor-card/refs/heads/${BRANCH}"
+
+bashio::log.info "  Channel: ${CHANNEL} (branch=${BRANCH})"
 
 # ── Helpers ──────────────────────────────────────────────────
 
@@ -188,32 +194,41 @@ bashio::log.info "Step 3/5: Installing dashboard cards..."
 CARDS_DIR="/config/www/smartvanio"
 mkdir -p "$CARDS_DIR"
 
-# Main card
-bashio::log.info "  Downloading smartvanio-main-card.js..."
-if curl -sL "${CARD_BASE_URL}/index.js" -o "${CARDS_DIR}/smartvanio-main-card.js"; then
-    CARD_SIZE=$(wc -c < "${CARDS_DIR}/smartvanio-main-card.js" | tr -d ' ')
-    if [ "$CARD_SIZE" -gt 1000 ]; then
-        bashio::log.info "  smartvanio-main-card.js (${CARD_SIZE} bytes)"
-        # Fetch card version from package.json and write version file for update entity
-        CARD_VER=$(curl -sL "${CARD_BASE_URL}/package.json" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('version',''))" 2>/dev/null || echo "")
-        if [ -n "$CARD_VER" ]; then
-            echo "$CARD_VER" > "${CARDS_DIR}/.card_version"
-            bashio::log.info "  Card version: ${CARD_VER}"
-        fi
-    else
-        bashio::log.error "  smartvanio-main-card.js download looks too small (${CARD_SIZE} bytes)"
+# Reusable card downloader. Args:
+#   $1 = base URL (raw.githubusercontent.com root for the branch/tag)
+#   $2 = output filename (must match SMARTVANIO_RESOURCES in configure_yaml.py
+#        and the dashboard yaml's `type: custom:<filename-without-.js>`)
+#   $3 = friendly name for log lines
+download_card() {
+    local base="$1"
+    local out="$2"
+    local label="$3"
+    bashio::log.info "  Downloading ${out}..."
+    if ! curl -sfL "${base}/index.js" -o "${CARDS_DIR}/${out}"; then
+        bashio::log.error "  Failed to download ${label}"
+        return 1
     fi
-else
-    bashio::log.error "  Failed to download main card"
-fi
+    local size
+    size=$(wc -c < "${CARDS_DIR}/${out}" | tr -d ' ')
+    if [ "$size" -lt 1000 ]; then
+        bashio::log.error "  ${out} download looks too small (${size} bytes)"
+        return 1
+    fi
+    bashio::log.info "  ${out} (${size} bytes)"
+    # Per-card version marker for the future update entity. Fail open
+    # — a missing package.json shouldn't break the install.
+    local ver
+    ver=$(curl -sfL "${base}/package.json" 2>/dev/null \
+        | python3 -c "import sys,json; print(json.load(sys.stdin).get('version',''))" 2>/dev/null \
+        || echo "")
+    if [ -n "$ver" ]; then
+        echo "$ver" > "${CARDS_DIR}/.${out%.js}.version"
+        bashio::log.info "  ${label} version: ${ver}"
+    fi
+}
 
-# Kiosk mode
-bashio::log.info "  Downloading kiosk-mode.js..."
-if curl -sL "${CARD_BASE_URL}/kiosk-mode.js" -o "${CARDS_DIR}/kiosk-mode.js"; then
-    bashio::log.info "  kiosk-mode.js downloaded"
-else
-    bashio::log.warning "  Failed to download kiosk-mode.js — kiosk mode will not be available"
-fi
+download_card "$INCLINOMETER_CARD_URL" "smartvan-io-inclinometer.js" "Inclinometer card"
+download_card "$RESISTIVE_CARD_URL"     "smartvan-io-resistive-sensor.js" "Resistive-sensor card"
 
 # ── Step 4: Install dashboard + configure lovelace ───────────
 

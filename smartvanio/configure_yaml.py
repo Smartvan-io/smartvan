@@ -32,8 +32,8 @@ yaml.add_representer(_IncludeTag, _ha_tag_representer, Dumper=yaml.SafeDumper)
 
 
 SMARTVANIO_RESOURCES = [
-    {"url": "/local/smartvanio/kiosk-mode.js", "type": "module"},
-    {"url": "/local/smartvanio/smartvanio-main-card.js", "type": "module"},
+    {"url": "/local/smartvanio/smartvan-io-inclinometer.js", "type": "module"},
+    {"url": "/local/smartvanio/smartvan-io-resistive-sensor.js", "type": "module"},
 ]
 
 SMARTVANIO_DASHBOARD = {

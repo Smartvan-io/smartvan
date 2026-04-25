@@ -3,6 +3,21 @@ title: SmartVan.io
 views:
   - title: Dashboard
     path: default
-    type: panel
+    icon: mdi:van-utility
     cards:
-      - type: custom:smartvanio-main-card
+      - type: markdown
+        content: |
+          ## Welcome to SmartVan.io
+
+          1. Power on your SmartVan.io devices.
+          2. Open **SmartVan.io** in the sidebar to calibrate them.
+          3. Edit the cards below and pick the device you want each one to show.
+
+          You can pick a different visual style for each card in its editor —
+          *classic*, *minimal*, or *horizon* for inclinometers; *tile*, *gauge*,
+          or *bar* for resistive sensors.
+      - type: custom:smartvan-io-inclinometer
+        # Set `device:` from the card editor after calibrating in the SmartVan.io
+        # add-on UI. Pre-filling here is fragile — if no inclinometer was
+        # discovered on first boot, this device id wouldn't exist yet.
+      - type: custom:smartvan-io-resistive-sensor
