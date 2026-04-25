@@ -64,6 +64,19 @@ For each tank/level sensor:
 
 The two sensor cards are also published on HACS for users who don't run the add-on. **If you use the add-on, don't also install the cards via HACS** — you'd end up with two registrations of the same card with different versions.
 
+## Uninstalling cleanly
+
+Home Assistant doesn't run anything when you remove an add-on, so do this **before** clicking Uninstall in Supervisor:
+
+1. Open the add-on UI from the **SmartVan.io** sidebar entry.
+2. Scroll to the **Uninstall** section at the bottom and click **Clean up & prepare for uninstall**.
+3. Confirm in the browser dialog. The page reports cleanup progress; HA restarts automatically.
+4. Once HA is back up, go to **Settings → Add-ons → SmartVan.io → ⋮ → Uninstall**.
+
+Cleanup removes: the integration files in `/config/custom_components/smartvanio/`, the sensor card bundles in `/config/www/smartvanio/`, the SmartVan.io dashboard, and our entries in `lovelace.resources` / `lovelace.dashboards` (whether those are stored in `configuration.yaml` or via storage mode).
+
+Cleanup deliberately leaves alone: the Mosquitto add-on, the MQTT integration's config entry, your devices' MQTT credentials. If you also want to remove those, do so from Settings after uninstall.
+
 ## Troubleshooting
 
 - **The page is blank inside the SmartVan.io sidebar entry.** Check the add-on log for waitress errors. A common cause is the integration not being installed yet — restart Home Assistant once.

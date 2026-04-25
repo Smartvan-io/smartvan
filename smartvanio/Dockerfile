@@ -23,11 +23,13 @@ RUN apk add --no-cache \
 #   /opt/smartvanio/ui/           — Flask + Jinja templates + static assets
 COPY run.sh /
 COPY provision.sh /opt/smartvanio/provision.sh
+COPY cleanup.sh /opt/smartvanio/cleanup.sh
 COPY configure_yaml.py /opt/smartvanio/configure_yaml.py
+COPY unconfigure_yaml.py /opt/smartvanio/unconfigure_yaml.py
 COPY dashboards/ /opt/smartvanio/dashboards/
 COPY ui/ /opt/smartvanio/ui/
 
-RUN chmod a+x /run.sh /opt/smartvanio/provision.sh
+RUN chmod a+x /run.sh /opt/smartvanio/provision.sh /opt/smartvanio/cleanup.sh
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/opt/smartvanio

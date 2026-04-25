@@ -199,6 +199,14 @@ button.secondary:hover { background: #11141a; }
 .result-ok { color: var(--ok); }
 .result-warn { color: var(--warn); }
 
+.danger-zone { border-color: #4b1d1d; }
+.danger-zone h2 { color: #ef4444; }
+button.danger {
+    background: #b91c1c;
+    color: white;
+}
+button.danger:hover { background: #dc2626; }
+
 h3 { font-size: 0.95rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 18px 0 8px; }
 
 .points-editor {

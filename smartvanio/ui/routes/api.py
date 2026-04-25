@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
 
 from flask import Blueprint, abort, render_template, request
 
@@ -271,3 +272,46 @@ def set_resistive_number_or_select(device_id: str, n: int, field: str):
         if not confirmed:
             return _result_partial(False, "saved, but the device didn't acknowledge — is it online?")
         return _result_partial(True, f"saved: {option}")
+
+
+# ── Uninstall flow ────────────────────────────────────────────
+
+
+@bp.post("/uninstall")
+def uninstall():
+    """Run cleanup.sh, then tell the user to remove the add-on.
+
+    HA Supervisor doesn't run anything when the add-on is uninstalled,
+    so cleanup must happen here, while the container is still alive.
+    Form must include `confirm=yes` (the UI sends that after a confirm
+    prompt) so a stray POST can't trigger destruction.
+    """
+    if request.form.get("confirm") != "yes":
+        return _result_partial(False, "missing confirmation"), 400
+
+    try:
+        result = subprocess.run(
+            ["bash", "/opt/smartvanio/cleanup.sh"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return (
+            _result_partial(False, "cleanup timed out — check the addon log"),
+            500,
+        )
+
+    if result.returncode != 0:
+        logger.error(
+            "cleanup.sh failed (%d): %s", result.returncode, result.stderr.strip()
+        )
+        return (
+            _result_partial(
+                False,
+                f"cleanup script exited {result.returncode} — check the addon log",
+            ),
+            500,
+        )
+
+    return render_template("partials/uninstall_done.html")
