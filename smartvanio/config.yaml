@@ -1,11 +1,11 @@
 # SmartVan.io Setup App
 name: "SmartVan.io"
-version: "2.2.4"
-init: false
+version: "3.0.0-dev"
 slug: "smartvanio"
 description: >-
-  One-click setup for SmartVan.io campervan control system.
-  Installs the integration, dashboard cards, and configures MQTT.
+  One-click setup + calibration UI for SmartVan.io campervan control system.
+  Installs the integration, sensor cards, configures MQTT, and serves a
+  device calibration UI via the sidebar.
 url: "https://smartvan.io"
 
 arch:
@@ -16,20 +16,32 @@ build_from:
   aarch64: "ghcr.io/home-assistant/aarch64-base:3.21"
   amd64: "ghcr.io/home-assistant/amd64-base:3.21"
 
-startup: application
-boot: manual
+init: false
+startup: services
+boot: auto
 
-# Needs config directory to install integration + cards + dashboards
+ingress: true
+ingress_port: 8099
+panel_icon: "mdi:van-utility"
+panel_title: "SmartVan.io"
+panel_admin: true
+
+# Needs config directory to install integration + cards + dashboards.
+# /data is automatically mapped (persistent state for marker file + cache).
 map:
   - config:rw
 
 options:
   mqtt_user: "smartvanio"
   mqtt_password: "smartvanio123"
+  channel: "stable"
+  force_reprovision: false
 
 schema:
   mqtt_user: str
   mqtt_password: password
+  channel: list(stable|beta)
+  force_reprovision: bool
 
 hassio_api: true
 hassio_role: admin

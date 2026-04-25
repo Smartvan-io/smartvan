@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="card">
+    <h1>Hello from Ingress</h1>
+    <p>If you can read this inside the Home Assistant sidebar, the add-on
+    is being served correctly through Ingress.</p>
+
+    <h2>Home Assistant API round-trip</h2>
+    {% if ha_status.ok %}
+        <p class="ok">OK — <code>{{ ha_status.message }}</code></p>
+    {% else %}
+        <p class="warn">Not reachable: {{ ha_status.reason }}</p>
+    {% endif %}
+
+    <h2>WebSocket echo</h2>
+    <p>The browser opens <code>/ws/echo</code>. Type something and hit Send;
+    the round-trip should be near-instant.</p>
+    <form id="ws-form">
+        <input type="text" id="ws-input" placeholder="ping" autocomplete="off" />
+        <button type="submit">Send</button>
+    </form>
+    <pre id="ws-log" class="log"></pre>
+</section>
+{% endblock %}
