@@ -39,6 +39,7 @@ DEVICES_CACHE_PATH = Path("/data/devices-cache.json")
 SMARTVANIO_DOMAIN = "smartvanio"
 
 DeviceListener = Callable[[dict[str, dict[str, Any]]], None]
+EntityListener = Callable[[str, dict[str, Any] | None], None]
 
 
 class HAClient:
@@ -63,9 +64,17 @@ class HAClient:
         self._pending: dict[int, AsyncResult] = {}
         self._devices: dict[str, dict[str, Any]] = {}
         self._device_listeners: list[DeviceListener] = []
+        self._entity_listeners: dict[str, list[EntityListener]] = {}
+        # device_id -> set(entity_id)
+        self._device_entities: dict[str, set[str]] = {}
+        # entity_id -> device_id (reverse lookup for fast event routing)
+        self._entity_to_device: dict[str, str] = {}
+        # entity_id -> last-known state dict {state, attributes, ...}
+        self._states: dict[str, dict[str, Any]] = {}
         self._listener_lock = RLock()
         self._ready = Event()
         self._registry_sub_id: int | None = None
+        self._state_sub_id: int | None = None
         self._load_devices_cache()
         gevent.spawn(self._run_forever)
 
@@ -97,6 +106,38 @@ class HAClient:
         if target is not None:
             msg["target"] = target
         return self._send_and_await(msg)
+
+    def get_state(self, entity_id: str) -> dict[str, Any] | None:
+        """Last-known state for an entity, or None if not seen yet."""
+        return self._states.get(entity_id)
+
+    def get_entities_for_device(self, device_id: str) -> list[str]:
+        return sorted(self._device_entities.get(device_id, ()))
+
+    def add_entity_listener(
+        self, device_id: str, cb: EntityListener
+    ) -> Callable[[], None]:
+        """Subscribe to state changes for entities owned by `device_id`.
+
+        On registration, immediately calls `cb(entity_id, state)` for
+        every currently-known entity of the device, so the caller can
+        prime its UI without waiting for the next change.
+        """
+        with self._listener_lock:
+            self._entity_listeners.setdefault(device_id, []).append(cb)
+        for entity_id in self.get_entities_for_device(device_id):
+            try:
+                cb(entity_id, self._states.get(entity_id))
+            except Exception:
+                logger.exception("entity listener raised on initial snapshot")
+
+        def remove() -> None:
+            with self._listener_lock:
+                listeners = self._entity_listeners.get(device_id)
+                if listeners and cb in listeners:
+                    listeners.remove(cb)
+
+        return remove
 
     def add_device_listener(self, cb: DeviceListener) -> Callable[[], None]:
         with self._listener_lock:
@@ -143,9 +184,15 @@ class HAClient:
             self._ws = ws
             self._authenticate(ws)
             self._prime_devices()
+            self._prime_entities_and_states()
             self._subscribe_registry_updates()
+            self._subscribe_state_changes()
             self._ready.set()
-            logger.info("HA WS ready (%d SmartVan.io devices cached)", len(self._devices))
+            logger.info(
+                "HA WS ready (%d devices, %d entities)",
+                len(self._devices),
+                len(self._entity_to_device),
+            )
             self._read_loop(ws)
         finally:
             self._ws = None
@@ -187,6 +234,63 @@ class HAClient:
             also_returns_id=True,
         )
 
+    def _subscribe_state_changes(self) -> None:
+        # Subscribe to all state_changed events; we filter to
+        # SmartVan.io entities in the read loop. Cheap given the
+        # event volume in a typical home install.
+        self._state_sub_id = self._send_and_await(
+            {"type": "subscribe_events", "event_type": "state_changed"},
+            wait_for_result=True,
+            also_returns_id=True,
+        )
+
+    def _prime_entities_and_states(self) -> None:
+        """Build {device_id: [entity_id]} and seed state cache.
+
+        Two HA WS calls:
+          - config/entity_registry/list -> entity -> device mapping
+          - get_states -> initial snapshot of every entity's state
+        Both are bounded one-shots. Live updates after this come
+        through the state_changed subscription.
+        """
+        if not self._devices:
+            self._device_entities = {}
+            self._entity_to_device = {}
+            self._states = {}
+            return
+
+        smartvanio_ha_ids = {d["ha_id"] for d in self._devices.values() if d.get("ha_id")}
+        device_id_for_ha_id = {
+            d["ha_id"]: d["device_id"]
+            for d in self._devices.values()
+            if d.get("ha_id")
+        }
+
+        entities = self._send_and_await({"type": "config/entity_registry/list"}) or []
+        device_entities: dict[str, set[str]] = {d: set() for d in self._devices}
+        entity_to_device: dict[str, str] = {}
+        for entry in entities:
+            ha_dev_id = entry.get("device_id")
+            if ha_dev_id not in smartvanio_ha_ids:
+                continue
+            entity_id = entry.get("entity_id")
+            if not entity_id:
+                continue
+            our_dev_id = device_id_for_ha_id[ha_dev_id]
+            device_entities[our_dev_id].add(entity_id)
+            entity_to_device[entity_id] = our_dev_id
+
+        states_raw = self._send_and_await({"type": "get_states"}) or []
+        states: dict[str, dict[str, Any]] = {}
+        for st in states_raw:
+            eid = st.get("entity_id")
+            if eid in entity_to_device:
+                states[eid] = st
+
+        self._device_entities = device_entities
+        self._entity_to_device = entity_to_device
+        self._states = states
+
     def _read_loop(self, ws) -> None:
         for raw in _ws_messages(ws):
             msg = json.loads(raw)
@@ -211,11 +315,36 @@ class HAClient:
                 gevent.spawn(self._handle_registry_event)
                 continue
 
+            if mtype == "event" and mid == self._state_sub_id:
+                self._handle_state_event(msg.get("event", {}).get("data") or {})
+                continue
+
     def _handle_registry_event(self) -> None:
         try:
             self._prime_devices()
+            self._prime_entities_and_states()
         except Exception:
             logger.exception("re-prime after device_registry_updated failed")
+
+    def _handle_state_event(self, data: dict[str, Any]) -> None:
+        entity_id = data.get("entity_id")
+        if not entity_id:
+            return
+        device_id = self._entity_to_device.get(entity_id)
+        if device_id is None:
+            return  # not one of ours
+        new_state = data.get("new_state")
+        if new_state is None:
+            self._states.pop(entity_id, None)
+        else:
+            self._states[entity_id] = new_state
+        with self._listener_lock:
+            listeners = list(self._entity_listeners.get(device_id, ()))
+        for cb in listeners:
+            try:
+                cb(entity_id, new_state)
+            except Exception:
+                logger.exception("entity listener raised on state change")
 
     # ── Plumbing ──────────────────────────────────────────────
 
