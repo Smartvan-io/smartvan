@@ -31,19 +31,23 @@ INTEGRATION_REPO="https://github.com/Smartvan-io/smartvanio-integration.git"
 CHANNEL=$(bashio::config 'channel' 2>/dev/null || echo "stable")
 # stable -> main, beta -> beta. Public release tags can replace this once cut.
 if [ "$CHANNEL" = "beta" ]; then
-    BRANCH="beta"
+    INTEGRATION_BRANCH="beta"
+    CARD_BRANCH="beta"
 else
-    BRANCH="main"
+    INTEGRATION_BRANCH="main"
+    # TEMP for v1 testing: cards' main branches still hold the v1.0
+    # release that has the in-card config UI we replaced. Point the
+    # stable channel at the new feature branch on each card repo
+    # until we tag v2.0.0 and merge to main.
+    CARD_BRANCH="feature-v1-public-release"
 fi
-INTEGRATION_BRANCH="$BRANCH"
 
-# Each sensor card lives in its own repo. Both branches are tracked
-# in lockstep with the integration; replace with `tags/<rel>` once
-# we cut a public release tag.
-INCLINOMETER_CARD_URL="https://raw.githubusercontent.com/Smartvan-io/smartvanio-inclinometer-card/refs/heads/${BRANCH}"
-RESISTIVE_CARD_URL="https://raw.githubusercontent.com/Smartvan-io/smartvanio-resistive-sensor-card/refs/heads/${BRANCH}"
+# Each sensor card lives in its own repo. Repos are not under the
+# `smartvanio-` prefix that the integration uses.
+INCLINOMETER_CARD_URL="https://raw.githubusercontent.com/Smartvan-io/inclinometer-card/refs/heads/${CARD_BRANCH}"
+RESISTIVE_CARD_URL="https://raw.githubusercontent.com/jameslouiz/resistive-sensor-card/refs/heads/${CARD_BRANCH}"
 
-bashio::log.info "  Channel: ${CHANNEL} (branch=${BRANCH})"
+bashio::log.info "  Channel: ${CHANNEL} (integration=${INTEGRATION_BRANCH}, cards=${CARD_BRANCH})"
 
 # ── Helpers ──────────────────────────────────────────────────
 
