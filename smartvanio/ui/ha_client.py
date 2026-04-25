@@ -229,11 +229,17 @@ class HAClient:
             return
 
         logger.info("Connecting to HA WS at %s", HA_WS_URL)
+        # 10 s timeout for the connect + auth handshake. After that we
+        # set timeout=None on the socket so the read loop blocks
+        # indefinitely on idle frames — otherwise the SOCK_RCVTIMEO
+        # fires every 10 s and we churn through reconnects pointlessly
+        # whenever HA isn't pushing events.
         ws = create_connection(HA_WS_URL, timeout=10)
         reader = None
         try:
             self._ws = ws
             self._authenticate(ws)
+            ws.settimeout(None)
 
             # Spawn the read loop BEFORE any priming command. Priming
             # uses _send_and_await, which registers an AsyncResult and
