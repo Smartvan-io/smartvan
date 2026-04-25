@@ -42,10 +42,11 @@ else
     CARD_BRANCH="feature-v1-public-release"
 fi
 
-# Each sensor card lives in its own repo. Repos are not under the
-# `smartvanio-` prefix that the integration uses.
+# Each sensor card lives in its own repo under the Smartvan-io org.
+# Note: card repos are NOT under the `smartvanio-` prefix that the
+# integration repo uses.
 INCLINOMETER_CARD_URL="https://raw.githubusercontent.com/Smartvan-io/inclinometer-card/refs/heads/${CARD_BRANCH}"
-RESISTIVE_CARD_URL="https://raw.githubusercontent.com/jameslouiz/resistive-sensor-card/refs/heads/${CARD_BRANCH}"
+RESISTIVE_CARD_URL="https://raw.githubusercontent.com/Smartvan-io/resistive-sensor-card/refs/heads/${CARD_BRANCH}"
 
 bashio::log.info "  Channel: ${CHANNEL} (integration=${INTEGRATION_BRANCH}, cards=${CARD_BRANCH})"
 
@@ -294,23 +295,24 @@ bashio::log.info ""
 bashio::log.info "Step 5/5: Configuring integrations..."
 
 if [ "$MODE" = "supervisor" ]; then
+    # Best-effort throughout Step 5: HA may still be coming up; do
+    # not fail provisioning over a missed config entry registration —
+    # the addon UI can still run and the user can finish manually.
+    set +e
+
     if wait_for_ha; then
-        # Register Lovelace resources via API (for storage mode users)
+        # Register Lovelace resources via API (for storage mode users
+        # — YAML-mode users get them via configure_yaml.py in Step 4).
         EXISTING=$(ha_api GET "/config/lovelace/resources" 2>/dev/null || echo "[]")
 
-        KIOSK_EXISTS=$(echo "$EXISTING" | jq -r '[.[] | select(.url | contains("kiosk-mode"))] | length' 2>/dev/null || echo "0")
-        if [ "$KIOSK_EXISTS" = "0" ]; then
-            ha_api POST "/config/lovelace/resources" \
-                '{"res_type":"module","url":"/local/smartvanio/kiosk-mode.js"}' >/dev/null 2>&1 || true
-            bashio::log.info "  Registered kiosk-mode.js resource"
-        fi
-
-        MAIN_CARD_EXISTS=$(echo "$EXISTING" | jq -r '[.[] | select(.url | contains("smartvanio-main-card"))] | length' 2>/dev/null || echo "0")
-        if [ "$MAIN_CARD_EXISTS" = "0" ]; then
-            ha_api POST "/config/lovelace/resources" \
-                '{"res_type":"module","url":"/local/smartvanio/smartvanio-main-card.js"}' >/dev/null 2>&1 || true
-            bashio::log.info "  Registered smartvanio-main-card.js resource"
-        fi
+        for card_path in "smartvan-io-inclinometer.js" "smartvan-io-resistive-sensor.js"; do
+            already=$(echo "$EXISTING" | jq -r --arg p "$card_path" '[.[] | select(.url | contains($p))] | length' 2>/dev/null || echo "0")
+            if [ "$already" = "0" ]; then
+                ha_api POST "/config/lovelace/resources" \
+                    "{\"res_type\":\"module\",\"url\":\"/local/smartvanio/${card_path}\"}" >/dev/null 2>&1 || true
+                bashio::log.info "  Registered ${card_path} resource"
+            fi
+        done
 
         # Configure MQTT integration
         ENTRIES=$(ha_api GET "/config/config_entries/entry" 2>/dev/null || echo "[]")
@@ -404,6 +406,9 @@ if [ "$MODE" = "supervisor" ]; then
             fi
         fi
     fi
+
+    # Restore strict-mode for the marker writes below.
+    set -e
 else
     bashio::log.info "  Skipping API configuration (standalone mode)"
     bashio::log.info "  Restart HA to load the integration, then configure via UI:"
