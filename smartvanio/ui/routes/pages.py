@@ -11,16 +11,9 @@ bp = Blueprint("pages", __name__)
 
 @bp.get("/")
 def index():
-    ha = get_client()
-    devices = ha.list_devices()
-    # ha_ready=False means the HA WS hasn't auth'd yet on this boot.
-    # The page still renders from the persistent /data cache; the
-    # device-list area is also live-updated via /ws/devices.
-    return render_template(
-        "index.html",
-        devices=devices,
-        ha_ready=ha.is_ready(),
-    )
+    # The Lit app fetches device state from /ws/devices on connect, so
+    # the shell template doesn't need to be primed with anything.
+    return render_template("index.html")
 
 
 @bp.get("/device/<device_id>")

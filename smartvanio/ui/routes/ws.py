@@ -50,18 +50,14 @@ def register(sock: Sock) -> None:
         try:
             while True:
                 devices = latest.get()  # blocks
-                # Render the same partial used on initial page load
-                # so the template is the single source of truth.
-                with current_app.test_request_context("/"):
-                    html = render_template(
-                        "partials/device_list.html",
-                        devices=sorted(
-                            devices.values(),
-                            key=lambda d: (d.get("name") or "").lower(),
-                        ),
-                    )
-                envelope = json.dumps({"target": "#device-list", "html": html})
-                ws.send(envelope)
+                payload = {
+                    "devices": sorted(
+                        devices.values(),
+                        key=lambda d: (d.get("name") or "").lower(),
+                    ),
+                    "ha_ready": ha.is_ready(),
+                }
+                ws.send(json.dumps(payload))
         except Exception:
             # Browser closed, network blip, etc. Disconnect cleanly.
             logger.debug("/ws/devices client gone", exc_info=True)

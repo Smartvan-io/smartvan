@@ -1,4 +1,19 @@
 ARG BUILD_FROM=ghcr.io/home-assistant/aarch64-base:3.21
+
+# ── Frontend build stage ─────────────────────────────────────────────
+# Compiles the Lit frontend (src/sv-app.js) into a single ES module
+# bundle. Output is mounted into ui/static/ in the runtime stage so
+# Flask serves it as /static/bundle.js.
+FROM node:20-alpine AS frontend
+WORKDIR /build
+COPY frontend/package.json frontend/package.json
+RUN cd frontend && npm install --silent --no-audit --no-fund --no-progress
+COPY frontend frontend
+# Pin the rollup output path inside the build container; the runtime
+# stage only copies bundle.js so the rest of /build is throwaway.
+RUN cd frontend && DESTINATION=/build/bundle.js npm run build
+
+# ── Runtime stage ────────────────────────────────────────────────────
 FROM ${BUILD_FROM}
 
 # Runtime dependencies:
@@ -28,6 +43,11 @@ COPY configure_yaml.py /opt/smartvanio/configure_yaml.py
 COPY unconfigure_yaml.py /opt/smartvanio/unconfigure_yaml.py
 COPY dashboards/ /opt/smartvanio/dashboards/
 COPY ui/ /opt/smartvanio/ui/
+
+# Copy the rolled-up Lit bundle from the frontend build stage. Goes
+# into ui/static/ so Flask's url_for('static', filename='bundle.js')
+# resolves to /static/bundle.js (with Ingress prefix applied).
+COPY --from=frontend /build/bundle.js /opt/smartvanio/ui/static/bundle.js
 
 RUN chmod a+x /run.sh /opt/smartvanio/provision.sh /opt/smartvanio/cleanup.sh
 

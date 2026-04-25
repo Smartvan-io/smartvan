@@ -1,45 +1,16 @@
-{% extends "base.html" %}
-
-{% block content %}
-<section class="card">
-    <header class="card-header">
-        <h1>Devices</h1>
-        <span class="muted">
-            {% if ha_ready %}
-                <span class="dot dot-ok" title="HA WebSocket connected"></span> connected
-            {% else %}
-                <span class="dot dot-warn" title="Connecting to HA"></span> connecting…
-            {% endif %}
-        </span>
-    </header>
-
-    <div id="device-list" data-ws="/ws/devices">
-        {% include "partials/device_list.html" %}
-    </div>
-</section>
-
-<dialog id="device-modal" class="device-modal">
-    <div id="device-modal-content"></div>
-</dialog>
-
-<section class="card danger-zone">
-    <header class="card-header"><h2>Uninstall</h2></header>
-    <p class="muted">
-        Removes the SmartVan.io integration, sensor cards, dashboard, and
-        Lovelace registrations from this Home Assistant instance, then
-        restarts HA. Mosquitto and the MQTT integration are left alone.
-        Click this <strong>before</strong> uninstalling the add-on from
-        Supervisor.
-    </p>
-    <form
-        hx-post="{{ url_for('api.uninstall') }}"
-        hx-target="#uninstall-result"
-        hx-swap="innerHTML"
-        hx-confirm="This will remove the SmartVan.io integration, cards, dashboard, and Lovelace registrations, then restart Home Assistant. Continue?"
-    >
-        <input type="hidden" name="confirm" value="yes" />
-        <button type="submit" class="danger">Clean up &amp; prepare for uninstall</button>
-    </form>
-    <div id="uninstall-result" class="result"></div>
-</section>
-{% endblock %}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SmartVan.io</title>
+    <style>
+      html, body { margin: 0; padding: 0; background: #0e1014; }
+      body { min-height: 100vh; }
+    </style>
+    <script type="module" src="{{ url_for('static', filename='bundle.js') }}"></script>
+</head>
+<body>
+    <sv-app></sv-app>
+</body>
+</html>
