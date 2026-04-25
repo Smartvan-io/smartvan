@@ -230,9 +230,18 @@ class HAClient:
 
         logger.info("Connecting to HA WS at %s", HA_WS_URL)
         ws = create_connection(HA_WS_URL, timeout=10)
+        reader = None
         try:
             self._ws = ws
             self._authenticate(ws)
+
+            # Spawn the read loop BEFORE any priming command. Priming
+            # uses _send_and_await, which registers an AsyncResult and
+            # blocks waiting for the matching response — the response
+            # only arrives if something is reading from the WS. Doing
+            # the read in this same greenlet would deadlock.
+            reader = gevent.spawn(self._read_loop, ws)
+
             self._prime_devices()
             self._prime_entities_and_states()
             self._subscribe_registry_updates()
@@ -243,9 +252,13 @@ class HAClient:
                 len(self._devices),
                 len(self._entity_to_device),
             )
-            self._read_loop(ws)
+            # Block until the reader exits (network blip, server close).
+            reader.join()
+            reader = None
         finally:
             self._ws = None
+            if reader is not None:
+                reader.kill(block=False)
             try:
                 ws.close()
             except Exception:
