@@ -110,6 +110,20 @@ class HAClient:
             msg["target"] = target
         return self._send_and_await(msg)
 
+    def update_entity_name(self, entity_id: str, name: str | None) -> dict[str, Any]:
+        """Set name_by_user on an entity.
+
+        Passing name=None clears the override and falls back to the
+        device-supplied name. The HA WS API treats empty string the
+        same as null for this field.
+        """
+        msg = {
+            "type": "config/entity_registry/update",
+            "entity_id": entity_id,
+            "name": name or None,
+        }
+        return self._send_and_await(msg)
+
     def get_state(self, entity_id: str) -> dict[str, Any] | None:
         """Last-known state for an entity, or None if not seen yet."""
         return self._states.get(entity_id)

@@ -2,6 +2,7 @@ import { LitElement, html, css } from "lit";
 import { tokens, baseFont, widgets, getJson, wsUrl } from "./sv-shared.js";
 import "./sv-inclinometer-page.js";
 import "./sv-resistive-page.js";
+import "./sv-led-page.js";
 import "./sv-device-unknown-page.js";
 
 // Container for the detail view. Responsible for:
@@ -164,6 +165,14 @@ export class SvDeviceDetail extends LitElement {
           .data=${this._payload.resistive}
           .live=${this._live}
         ></sv-resistive-page>
+      `;
+    }
+    if (kind === "led") {
+      return html`
+        <sv-led-page
+          .deviceId=${this.deviceId}
+          .data=${this._payload.led}
+        ></sv-led-page>
       `;
     }
     return html`

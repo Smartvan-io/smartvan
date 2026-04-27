@@ -76,6 +76,8 @@ def device_detail(device_id: str):
         payload["inclinometer"] = _inclinometer_payload(ha, channels)
     elif "resistive" in model or "tank" in model:
         payload["resistive"] = _resistive_payload(ha, channels)
+    elif "led" in model:
+        payload["led"] = _led_payload(ha, channels)
 
     return jsonify(payload)
 
@@ -85,7 +87,39 @@ def _model_kind(model: str) -> str:
         return "inclinometer"
     if "resistive" in model or "tank" in model:
         return "resistive"
+    if "led" in model:
+        return "led"
     return "unknown"
+
+
+def _led_payload(ha, channels):
+    """Build the LED detail payload from the entity registry.
+
+    The four LED-strip light entities live at channels led_strip_1..4.
+    We surface their entity_id and current name (name_by_user falls
+    back to the registry name) so the addon can offer a rename. The
+    num_leds value isn't carried in HA state — the firmware persists
+    it in NVS — so the form is "set to" rather than "currently set
+    to". The user's input is published over MQTT to config_set.
+    """
+    strips = []
+    for n in (1, 2, 3, 4):
+        channel = f"led_strip_{n}"
+        entity_id = channels.get(channel)
+        if not entity_id:
+            continue
+        state = ha.get_state(entity_id) or {}
+        attrs = state.get("attributes") or {}
+        name = attrs.get("friendly_name") or entity_id
+        strips.append(
+            {
+                "n": n,
+                "channel": channel,
+                "entity_id": entity_id,
+                "name": name,
+            }
+        )
+    return {"strips": strips}
 
 
 def _inclinometer_payload(ha, channels):
@@ -356,6 +390,65 @@ def _read_value(req):
         body = req.json or {}
         return body.get("value")
     return req.form.get("value", "").strip()
+
+
+# ── LED writes ────────────────────────────────────────────────
+
+
+@bp.post("/device/<device_id>/led/strip/<int:n>/rename")
+def led_rename_strip(device_id: str, n: int):
+    """Rename the LED-strip light entity via the HA entity registry."""
+    if n not in (1, 2, 3, 4):
+        abort(404)
+    ha, _ = _device_or_404(device_id)
+    entity_id = _entity_or_400(ha, device_id, f"led_strip_{n}")
+
+    body = request.json or {}
+    new_name = (body.get("name") or "").strip()
+    if not new_name:
+        return _fail("name is required")
+
+    try:
+        ha.update_entity_name(entity_id, new_name)
+    except HAServiceError as exc:
+        return _fail(f"HA rejected: {exc}")
+
+    return _ok(f"renamed to “{new_name}”", name=new_name)
+
+
+@bp.post("/device/<device_id>/led/strip/<int:n>/num_leds")
+def led_set_num_leds(device_id: str, n: int):
+    """Publish the new LED count to the firmware via MQTT.
+
+    Firmware listens on `<device_id>/light/led_strip_<n>/config_set` and
+    persists `num_leds` to NVS, then reboots. We can't read back the
+    current value (it isn't in HA state), so this is fire-and-forget;
+    the form just shows "saved — device will reboot".
+    """
+    if n not in (1, 2, 3, 4):
+        abort(404)
+    ha, _ = _device_or_404(device_id)
+
+    body = request.json or {}
+    try:
+        value = int(body.get("value"))
+    except (TypeError, ValueError):
+        return _fail("value isn't an integer")
+    if value < 1 or value > 100:
+        return _fail("num_leds must be between 1 and 100")
+
+    topic = f"{device_id}/light/led_strip_{n}/config_set"
+    payload = json.dumps({"num_leds": value})
+    try:
+        ha.call_service(
+            "mqtt",
+            "publish",
+            service_data={"topic": topic, "payload": payload, "qos": 0, "retain": False},
+        )
+    except HAServiceError as exc:
+        return _fail(f"HA rejected: {exc}")
+
+    return _ok(f"set to {value} — device will reboot to apply")
 
 
 # ── Uninstall flow ────────────────────────────────────────────
