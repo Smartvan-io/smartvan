@@ -17,10 +17,6 @@ export class SvDeviceList extends LitElement {
     return html`
       <header class="header">
         <h1>Devices</h1>
-        <span class="status">
-          <span class="dot ${this.haReady ? "ok" : "warn"}"></span>
-          ${this.haReady ? "connected" : "connecting…"}
-        </span>
       </header>
       ${this.devices.length === 0
         ? html`<p class="empty">
@@ -72,34 +68,11 @@ export class SvDeviceList extends LitElement {
         padding: 20px;
       }
       .header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
         margin-bottom: 16px;
       }
       h1 {
         margin: 0;
         font-size: 1.5rem;
-      }
-      .status {
-        font-size: 0.85rem;
-        color: var(--sv-muted);
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-      }
-      .dot {
-        display: inline-block;
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-      }
-      .dot.ok {
-        background: var(--sv-ok);
-      }
-      .dot.warn {
-        background: var(--sv-warn);
       }
 
       .list {
