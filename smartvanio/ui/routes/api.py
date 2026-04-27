@@ -1,12 +1,13 @@
-"""Calibration write endpoints.
+"""JSON API for the SPA frontend.
 
-These translate UI form posts into HA service calls and confirm
-that the entity state actually moved within a short window before
-returning success. ESPHome devices that are offline will accept
-service calls with HTTP 200 but the entity state never updates,
-which would otherwise look like a successful save.
+Every save endpoint translates a UI action into an HA service call and
+confirms the entity state moved within a short window before returning
+success. ESPHome devices that are offline accept service calls with
+HTTP 200 but the entity state never changes — without the wait-for-state
+check this would look like a successful save.
 
-All routes return small HTML fragments suitable for hx-target swap.
+All routes return JSON. The shape is uniform: `{ok: bool, message: str}`
+on writes; reads return whatever data the SPA needs to hydrate.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import json
 import logging
 import subprocess
 
-from flask import Blueprint, abort, render_template, request
+from flask import Blueprint, abort, jsonify, request
 
 from ..ha_client import HAServiceError, get_client
 
@@ -39,20 +40,141 @@ def _entity_or_400(ha, device_id: str, channel: str) -> str:
     return entity_id
 
 
-def _result_partial(ok: bool, message: str):
-    return render_template("partials/result.html", ok=ok, message=message)
+def _ok(message: str, **extra):
+    return jsonify({"ok": True, "message": message, **extra})
 
 
-# ── Inclinometer ──────────────────────────────────────────────
+def _fail(message: str, status: int = 400, **extra):
+    return jsonify({"ok": False, "message": message, **extra}), status
+
+
+# ── Device hydration ──────────────────────────────────────────
+
+
+_INTERPOLATION_KINDS = ["linear", "quadratic", "cubic", "smooth"]
+
+
+@bp.get("/device/<device_id>")
+def device_detail(device_id: str):
+    """Hydration payload for the SPA detail view.
+
+    Returns enough to render the calibration UI without a second
+    request. Live values are still fed via /ws/device/<id>; the values
+    here are just the initial paint.
+    """
+    ha, device = _device_or_404(device_id)
+    model = (device.get("model") or "").lower()
+    channels = ha.channels_for_device(device_id)
+
+    payload = {
+        "device": device,
+        "model_kind": _model_kind(model),
+        "channels": channels,
+    }
+
+    if "inclinometer" in model:
+        payload["inclinometer"] = _inclinometer_payload(ha, channels)
+    elif "resistive" in model or "tank" in model:
+        payload["resistive"] = _resistive_payload(ha, channels)
+
+    return jsonify(payload)
+
+
+def _model_kind(model: str) -> str:
+    if "inclinometer" in model:
+        return "inclinometer"
+    if "resistive" in model or "tank" in model:
+        return "resistive"
+    return "unknown"
+
+
+def _inclinometer_payload(ha, channels):
+    def _state(channel):
+        eid = channels.get(channel)
+        return ha.get_state(eid) if eid else None
+
+    orientation = _state("orientation") or {}
+    pitch_comp = _state("pitch_adjustment_angle") or {}
+    roll_comp = _state("roll_adjustment_angle") or {}
+    pitch = _state("adjusted_pitch_angle") or {}
+    roll = _state("adjusted_roll_angle") or {}
+
+    options = (orientation.get("attributes") or {}).get("options") or []
+
+    return {
+        "orientation_value": orientation.get("state"),
+        "orientation_options": options,
+        "pitch_compensation": pitch_comp.get("state"),
+        "roll_compensation": roll_comp.get("state"),
+        "pitch_value": pitch.get("state"),
+        "roll_value": roll.get("state"),
+    }
+
+
+def _resistive_payload(ha, channels):
+    def _state(eid):
+        return ha.get_state(eid) if eid else None
+
+    sensors = []
+    for n in (1, 2):
+        # The "theshold" typo is firmware-side; mirror it so the
+        # unique_id lookup matches.
+        ch = {
+            "raw": channels.get(f"sensor_{n}_raw"),
+            "interpolated": channels.get(f"sensor_{n}_interpolated_value"),
+            "points": channels.get(f"sensor_{n}_interpolation_points"),
+            "kind": channels.get(f"sensor_{n}_interpolation_kind"),
+            "min_r": channels.get(f"sensor_{n}_min_resistance"),
+            "max_r": channels.get(f"sensor_{n}_max_resistance"),
+            "threshold": channels.get(f"sensor_{n}_open_circuit_voltage_theshold"),
+            "open": channels.get(f"sensor_{n}_input_open"),
+        }
+        kind_state = _state(ch["kind"])
+        kind_options = ((kind_state or {}).get("attributes") or {}).get(
+            "options"
+        ) or _INTERPOLATION_KINDS
+
+        sensors.append(
+            {
+                "n": n,
+                "raw_value": (_state(ch["raw"]) or {}).get("state"),
+                "interpolated_value": (_state(ch["interpolated"]) or {}).get("state"),
+                "points": _parse_points((_state(ch["points"]) or {}).get("state", "[]")),
+                "kind_value": (kind_state or {}).get("state"),
+                "kind_options": kind_options,
+                "min_r": (_state(ch["min_r"]) or {}).get("state"),
+                "max_r": (_state(ch["max_r"]) or {}).get("state"),
+                "threshold": (_state(ch["threshold"]) or {}).get("state"),
+                "input_open": (_state(ch["open"]) or {}).get("state") == "on",
+            }
+        )
+    return {"sensors": sensors}
+
+
+def _parse_points(raw: str) -> list[list[float]]:
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, list):
+            return []
+        out: list[list[float]] = []
+        for pair in data:
+            if isinstance(pair, list) and len(pair) >= 2:
+                out.append([float(pair[0]), float(pair[1])])
+        return out
+    except (ValueError, TypeError):
+        return []
+
+
+# ── Inclinometer writes ───────────────────────────────────────
 
 
 @bp.post("/device/<device_id>/inclinometer/orientation")
 def set_orientation(device_id: str):
     ha, _ = _device_or_404(device_id)
     entity_id = _entity_or_400(ha, device_id, "orientation")
-    option = request.form.get("option", "").strip()
+    option = (request.json or {}).get("option", "").strip() if request.is_json else request.form.get("option", "").strip()
     if not option:
-        return _result_partial(False, "missing option"), 400
+        return _fail("missing option")
     try:
         ha.call_service(
             "select",
@@ -61,29 +183,28 @@ def set_orientation(device_id: str):
             target={"entity_id": entity_id},
         )
     except HAServiceError as exc:
-        return _result_partial(False, f"HA rejected: {exc}"), 400
+        return _fail(f"HA rejected: {exc}")
 
     confirmed = ha.wait_for_state(
         entity_id, lambda s: s is not None and s.get("state") == option
     )
     if not confirmed:
-        return _result_partial(False, "saved, but the device didn't acknowledge — is it online?")
-    return _result_partial(True, f"orientation: {option}")
+        return _fail("saved, but the device didn't acknowledge — is it online?")
+    return _ok(f"orientation: {option}")
 
 
 @bp.post("/device/<device_id>/inclinometer/<axis>-compensation")
 def set_compensation(device_id: str, axis: str):
     if axis not in ("pitch", "roll"):
         abort(404)
-    channel = f"{axis}_adjustment_angle"
     ha, _ = _device_or_404(device_id)
-    entity_id = _entity_or_400(ha, device_id, channel)
+    entity_id = _entity_or_400(ha, device_id, f"{axis}_adjustment_angle")
 
-    raw = request.form.get("value", "").strip()
+    raw = _read_value(request)
     try:
         value = float(raw)
-    except ValueError:
-        return _result_partial(False, f"value {raw!r} isn't a number"), 400
+    except (TypeError, ValueError):
+        return _fail(f"value {raw!r} isn't a number")
 
     try:
         ha.call_service(
@@ -93,20 +214,19 @@ def set_compensation(device_id: str, axis: str):
             target={"entity_id": entity_id},
         )
     except HAServiceError as exc:
-        return _result_partial(False, f"HA rejected: {exc}"), 400
+        return _fail(f"HA rejected: {exc}")
 
     confirmed = ha.wait_for_state(
         entity_id,
         lambda s: s is not None and abs(float(s.get("state", "nan")) - value) < 0.01,
     )
     if not confirmed:
-        return _result_partial(False, "saved, but the device didn't acknowledge — is it online?")
-    return _result_partial(True, f"{axis} compensation: {value}°")
+        return _fail("saved, but the device didn't acknowledge — is it online?")
+    return _ok(f"{axis} compensation: {value}°")
 
 
 @bp.post("/device/<device_id>/inclinometer/<action>-<axis>")
 def press_calibration_button(device_id: str, action: str, axis: str):
-    """Trigger calibrate-pitch / calibrate-roll / reset-pitch / reset-roll."""
     if axis not in ("pitch", "roll"):
         abort(404)
     if action == "calibrate":
@@ -128,74 +248,30 @@ def press_calibration_button(device_id: str, action: str, axis: str):
             target={"entity_id": entity_id},
         )
     except HAServiceError as exc:
-        return _result_partial(False, f"HA rejected: {exc}"), 400
+        return _fail(f"HA rejected: {exc}")
 
-    return _result_partial(True, label)
-
-
-# ── Resistive sensor ──────────────────────────────────────────
+    return _ok(label)
 
 
-def _collect_points(form) -> list[list[float]]:
-    """Read v_0/p_0, v_1/p_1, … pairs from a posted form.
-
-    Skips rows where either input is blank or non-numeric — lets a
-    user partially clear a row without bringing the whole form down.
-    Sorted ascending by voltage so the on-device interpolation gets
-    monotone input regardless of the order rows were entered.
-    """
-    pairs: list[list[float]] = []
-    i = 0
-    while True:
-        v_raw = form.get(f"v_{i}")
-        p_raw = form.get(f"p_{i}")
-        if v_raw is None and p_raw is None:
-            break
-        try:
-            pairs.append([float(v_raw), float(p_raw)])
-        except (TypeError, ValueError):
-            pass
-        i += 1
-    pairs.sort(key=lambda x: x[0])
-    return pairs
-
-
-def _render_points_editor(device_id: str, n: int, points: list[list[float]]):
-    return render_template(
-        "partials/points_editor.html",
-        device_id=device_id,
-        n=n,
-        points=points,
-    )
-
-
-@bp.post("/device/<device_id>/resistive/<int:n>/points/add")
-def points_add(device_id: str, n: int):
-    _device_or_404(device_id)
-    points = _collect_points(request.form)
-    points.append([0.0, 0.0])
-    return _render_points_editor(device_id, n, points)
-
-
-@bp.post("/device/<device_id>/resistive/<int:n>/points/remove")
-def points_remove(device_id: str, n: int):
-    _device_or_404(device_id)
-    points = _collect_points(request.form)
-    try:
-        index = int(request.form.get("index", "-1"))
-    except ValueError:
-        index = -1
-    if 0 <= index < len(points):
-        del points[index]
-    return _render_points_editor(device_id, n, points)
+# ── Resistive sensor writes ───────────────────────────────────
 
 
 @bp.post("/device/<device_id>/resistive/<int:n>/points/save")
 def points_save(device_id: str, n: int):
     ha, _ = _device_or_404(device_id)
     entity_id = _entity_or_400(ha, device_id, f"sensor_{n}_interpolation_points")
-    points = _collect_points(request.form)
-    payload = json.dumps(points)
+
+    body = request.json or {}
+    raw_points = body.get("points") or []
+    cleaned: list[list[float]] = []
+    for pair in raw_points:
+        try:
+            cleaned.append([float(pair[0]), float(pair[1])])
+        except (TypeError, ValueError, IndexError):
+            continue
+    cleaned.sort(key=lambda x: x[0])
+
+    payload = json.dumps(cleaned)
     try:
         ha.call_service(
             "text",
@@ -204,19 +280,18 @@ def points_save(device_id: str, n: int):
             target={"entity_id": entity_id},
         )
     except HAServiceError as exc:
-        return _result_partial(False, f"HA rejected: {exc}"), 400
+        return _fail(f"HA rejected: {exc}")
 
     confirmed = ha.wait_for_state(
         entity_id, lambda s: s is not None and s.get("state") == payload
     )
     if not confirmed:
-        return _result_partial(False, "saved, but the device didn't acknowledge — is it online?")
-    return _result_partial(True, f"saved {len(points)} point(s)")
+        return _fail("saved, but the device didn't acknowledge — is it online?")
+    return _ok(f"saved {len(cleaned)} point(s)", points=cleaned)
 
 
 @bp.post("/device/<device_id>/resistive/<int:n>/<field>")
 def set_resistive_number_or_select(device_id: str, n: int, field: str):
-    """Catch-all for the simpler per-sensor settings."""
     field_to_channel_and_kind = {
         "min-resistance": (f"sensor_{n}_min_resistance", "number"),
         "max-resistance": (f"sensor_{n}_max_resistance", "number"),
@@ -232,11 +307,11 @@ def set_resistive_number_or_select(device_id: str, n: int, field: str):
     entity_id = _entity_or_400(ha, device_id, channel)
 
     if kind == "number":
-        raw = request.form.get("value", "").strip()
+        raw = _read_value(request)
         try:
             value = float(raw)
-        except ValueError:
-            return _result_partial(False, f"value {raw!r} isn't a number"), 400
+        except (TypeError, ValueError):
+            return _fail(f"value {raw!r} isn't a number")
         try:
             ha.call_service(
                 "number",
@@ -245,33 +320,42 @@ def set_resistive_number_or_select(device_id: str, n: int, field: str):
                 target={"entity_id": entity_id},
             )
         except HAServiceError as exc:
-            return _result_partial(False, f"HA rejected: {exc}"), 400
+            return _fail(f"HA rejected: {exc}")
         confirmed = ha.wait_for_state(
             entity_id,
             lambda s: s is not None and abs(float(s.get("state", "nan")) - value) < 0.01,
         )
         if not confirmed:
-            return _result_partial(False, "saved, but the device didn't acknowledge — is it online?")
-        return _result_partial(True, f"saved: {value}")
-    else:  # select
-        option = request.form.get("option", "").strip()
-        if not option:
-            return _result_partial(False, "missing option"), 400
-        try:
-            ha.call_service(
-                "select",
-                "select_option",
-                service_data={"option": option},
-                target={"entity_id": entity_id},
-            )
-        except HAServiceError as exc:
-            return _result_partial(False, f"HA rejected: {exc}"), 400
-        confirmed = ha.wait_for_state(
-            entity_id, lambda s: s is not None and s.get("state") == option
+            return _fail("saved, but the device didn't acknowledge — is it online?")
+        return _ok(f"saved: {value}")
+
+    option = (request.json or {}).get("option") if request.is_json else request.form.get("option")
+    option = (option or "").strip()
+    if not option:
+        return _fail("missing option")
+    try:
+        ha.call_service(
+            "select",
+            "select_option",
+            service_data={"option": option},
+            target={"entity_id": entity_id},
         )
-        if not confirmed:
-            return _result_partial(False, "saved, but the device didn't acknowledge — is it online?")
-        return _result_partial(True, f"saved: {option}")
+    except HAServiceError as exc:
+        return _fail(f"HA rejected: {exc}")
+    confirmed = ha.wait_for_state(
+        entity_id, lambda s: s is not None and s.get("state") == option
+    )
+    if not confirmed:
+        return _fail("saved, but the device didn't acknowledge — is it online?")
+    return _ok(f"saved: {option}")
+
+
+def _read_value(req):
+    """Pull `value` from a JSON body or a form post."""
+    if req.is_json:
+        body = req.json or {}
+        return body.get("value")
+    return req.form.get("value", "").strip()
 
 
 # ── Uninstall flow ────────────────────────────────────────────
@@ -281,13 +365,12 @@ def set_resistive_number_or_select(device_id: str, n: int, field: str):
 def uninstall():
     """Run cleanup.sh, then tell the user to remove the add-on.
 
-    HA Supervisor doesn't run anything when the add-on is uninstalled,
-    so cleanup must happen here, while the container is still alive.
-    Form must include `confirm=yes` (the UI sends that after a confirm
-    prompt) so a stray POST can't trigger destruction.
+    Form must include `confirm=yes` so a stray POST can't trigger
+    destruction.
     """
-    if request.form.get("confirm") != "yes":
-        return _result_partial(False, "missing confirmation"), 400
+    confirm = (request.json or {}).get("confirm") if request.is_json else request.form.get("confirm")
+    if confirm != "yes":
+        return _fail("missing confirmation")
 
     try:
         result = subprocess.run(
@@ -297,21 +380,15 @@ def uninstall():
             timeout=120,
         )
     except subprocess.TimeoutExpired:
-        return (
-            _result_partial(False, "cleanup timed out — check the addon log"),
-            500,
-        )
+        return _fail("cleanup timed out — check the addon log", status=500)
 
     if result.returncode != 0:
         logger.error(
             "cleanup.sh failed (%d): %s", result.returncode, result.stderr.strip()
         )
-        return (
-            _result_partial(
-                False,
-                f"cleanup script exited {result.returncode} — check the addon log",
-            ),
-            500,
+        return _fail(
+            f"cleanup script exited {result.returncode} — check the addon log",
+            status=500,
         )
 
-    return render_template("partials/uninstall_done.html")
+    return _ok("cleanup complete — you can remove the add-on now")

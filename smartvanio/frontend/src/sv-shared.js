@@ -10,6 +10,7 @@ export const tokens = css`
     --sv-muted: #9ca3af;
     --sv-card: #16181d;
     --sv-card-hover: #1c1f25;
+    --sv-input: #0a0c10;
     --sv-border: rgba(255, 255, 255, 0.08);
     --sv-border-strong: rgba(255, 255, 255, 0.14);
     --sv-accent: #60a5fa;
@@ -28,3 +29,217 @@ export const baseFont = css`
     line-height: 1.45;
   }
 `;
+
+// Shared widget styles. Imported into every page-level component so
+// the markup can use plain class names without duplicating CSS.
+export const widgets = css`
+  .card {
+    background: var(--sv-card);
+    border: 1px solid var(--sv-border);
+    border-radius: var(--sv-radius);
+    padding: 18px 20px;
+    margin-bottom: 16px;
+  }
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 12px;
+  }
+  .card-header h2 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+  h3 {
+    font-size: 0.85rem;
+    color: var(--sv-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 18px 0 8px;
+    font-weight: 600;
+  }
+  .muted {
+    color: var(--sv-muted);
+    font-size: 0.85rem;
+  }
+  .badge {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--sv-fg);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 0.78rem;
+    text-transform: lowercase;
+  }
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .dot-ok {
+    background: var(--sv-ok);
+  }
+  .dot-warn {
+    background: var(--sv-warn);
+  }
+  .inline-form {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  input[type="number"],
+  input[type="text"],
+  select {
+    background: var(--sv-input);
+    color: var(--sv-fg);
+    border: 1px solid var(--sv-border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 0.95rem;
+    font-family: inherit;
+  }
+  input[type="number"] {
+    width: 110px;
+  }
+  button {
+    background: var(--sv-accent);
+    color: #0a0c10;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: 600;
+  }
+  button:hover {
+    filter: brightness(1.08);
+  }
+  button.secondary {
+    background: transparent;
+    color: var(--sv-fg);
+    border: 1px solid var(--sv-border);
+    font-weight: 500;
+  }
+  button.secondary:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+  button.danger {
+    background: var(--sv-danger);
+    color: #fff;
+  }
+  button.danger:hover {
+    background: #dc2626;
+  }
+  .button-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+  }
+  label input[type="number"] {
+    width: 130px;
+  }
+  .result {
+    min-height: 1.4em;
+    margin-top: 8px;
+    font-size: 0.9rem;
+  }
+  .result.ok {
+    color: var(--sv-ok);
+  }
+  .result.warn {
+    color: var(--sv-warn);
+  }
+  .live-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .angle-card {
+    background: var(--sv-input);
+    border: 1px solid var(--sv-border);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+  }
+  .angle-axis {
+    color: var(--sv-muted);
+    font-size: 0.85rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .angle-value {
+    font-size: 2.4rem;
+    font-weight: 600;
+    margin-top: 6px;
+    line-height: 1;
+  }
+  .angle-unit {
+    color: var(--sv-muted);
+    font-size: 1.2rem;
+    margin-left: 2px;
+  }
+`;
+
+// API base + WS base resolved relative to the current location so
+// HA's Ingress prefix is preserved transparently. Strip a trailing
+// slash so concatenation produces a clean URL.
+export function ingressBase() {
+  return location.pathname.replace(/\/+$/, "");
+}
+
+export function apiUrl(path) {
+  return `${ingressBase()}${path}`;
+}
+
+export function wsUrl(path) {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${location.host}${ingressBase()}${path}`;
+}
+
+// JSON POST helper. Returns the parsed JSON regardless of HTTP status
+// so the caller can distinguish a 4xx with a useful `message` from a
+// transport failure (which throws).
+export async function postJson(path, body) {
+  const res = await fetch(apiUrl(path), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+  });
+  let payload = null;
+  try {
+    payload = await res.json();
+  } catch {
+    payload = { ok: false, message: `HTTP ${res.status}` };
+  }
+  if (typeof payload.ok !== "boolean") payload.ok = res.ok;
+  return payload;
+}
+
+export async function getJson(path) {
+  const res = await fetch(apiUrl(path));
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// Parse the device id from the current URL, or null if we're on the
+// list view. Works under HA's Ingress prefix because we match against
+// `pathname` directly.
+export function deviceIdFromUrl() {
+  const m = location.pathname.match(/\/device\/([^/]+)\/?$/);
+  return m ? decodeURIComponent(m[1]) : null;
+}

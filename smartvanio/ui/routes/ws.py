@@ -1,13 +1,11 @@
 """flask-sock WebSocket routes for live UI updates.
 
-Per-page protocol: server pushes JSON envelopes of the form
-    {"target": "#some-id", "html": "<div ...>...</div>"}
-The browser-side helper (live.js) replaces the targeted DOM region.
+Two sockets:
+  /ws/devices            — device-list snapshots (push on every change)
+  /ws/device/<device_id> — per-channel state changes for a single device
 
-Why HTML fragments and not JSON state: keeping rendering server-side
-means template logic lives in one place (Jinja) and the client stays
-trivial. It also matches the htmx mental model the rest of the UI
-uses for form submissions.
+Both push plain JSON. The Lit components own all rendering; this layer
+just relays HA state.
 """
 
 from __future__ import annotations
@@ -20,7 +18,7 @@ import gevent
 import gevent.event
 import gevent.lock
 import gevent.queue
-from flask import Blueprint, current_app, render_template
+from flask import Blueprint
 from flask_sock import Sock
 from gevent.queue import Queue
 
@@ -35,7 +33,6 @@ def register(sock: Sock) -> None:
     def ws_devices(ws):
         """Push the device list whenever HA's device registry changes."""
         ha = get_client()
-        # Coalesce bursts: store the latest snapshot, drop intermediates.
         latest: Queue = Queue(maxsize=1)
 
         def on_devices(devices: dict[str, dict[str, Any]]) -> None:
@@ -49,7 +46,7 @@ def register(sock: Sock) -> None:
         unsubscribe = ha.add_device_listener(on_devices)
         try:
             while True:
-                devices = latest.get()  # blocks
+                devices = latest.get()
                 payload = {
                     "devices": sorted(
                         devices.values(),
@@ -59,19 +56,18 @@ def register(sock: Sock) -> None:
                 }
                 ws.send(json.dumps(payload))
         except Exception:
-            # Browser closed, network blip, etc. Disconnect cleanly.
             logger.debug("/ws/devices client gone", exc_info=True)
         finally:
             unsubscribe()
 
     @sock.route("/ws/device/<device_id>")
     def ws_device(ws, device_id: str):
-        """Push live entity-state fragments for a single device.
+        """Push live entity state for a single device.
 
-        Coalesces per-target updates so a slow client never gets a
-        backlog. The page template marks live regions with both an
-        id and a data-channel attribute; this handler renders one
-        partial per channel based on the firmware-side channel name.
+        Each frame is `{channel, value, attributes}`. The browser-side
+        Lit component picks out the channels it cares about. We coalesce
+        per-channel updates so a slow client never gets a backlog —
+        only the latest value per channel is pushed each tick.
         """
         ha = get_client()
         device = ha.get_device(device_id)
@@ -79,10 +75,6 @@ def register(sock: Sock) -> None:
             ws.close()
             return
 
-        # Per-channel coalescing queue. Each item is a (channel, state)
-        # pair. We only keep the latest pending state per channel —
-        # if the device fires faster than the browser can render, we
-        # render the most recent value once and skip the intermediates.
         latest: dict[str, dict[str, Any] | None] = {}
         wakeup = gevent.event.Event()
         pending_lock = gevent.lock.Semaphore()
@@ -96,7 +88,6 @@ def register(sock: Sock) -> None:
             wakeup.set()
 
         unsubscribe = ha.add_entity_listener(device_id, on_entity)
-        model = (device.get("model") or "").lower()
 
         try:
             while True:
@@ -106,11 +97,11 @@ def register(sock: Sock) -> None:
                     latest.clear()
                     wakeup.clear()
                 for channel, state in snapshot.items():
-                    envelope = _render_channel_envelope(
-                        device, model, channel, state
-                    )
-                    if envelope is None:
-                        continue
+                    envelope = {
+                        "channel": channel,
+                        "value": (state or {}).get("state"),
+                        "attributes": (state or {}).get("attributes") or {},
+                    }
                     ws.send(json.dumps(envelope))
         except Exception:
             logger.debug("/ws/device/%s client gone", device_id, exc_info=True)
@@ -123,38 +114,3 @@ def _channel_for_entity(ha, device_id: str, entity_id: str) -> str | None:
         if eid == entity_id:
             return channel
     return None
-
-
-# Channels that have a corresponding live partial. Anything else is
-# ignored so we don't waste bandwidth pushing buttons / configs.
-_INCLINOMETER_LIVE_CHANNELS = {
-    "adjusted_pitch_angle": ("#live-pitch", "partials/inclinometer_angle.html", {"axis": "pitch"}),
-    "adjusted_roll_angle": ("#live-roll", "partials/inclinometer_angle.html", {"axis": "roll"}),
-}
-
-# {channel: (target_id, template, extra_render_vars)}
-_RESISTIVE_LIVE_CHANNELS = {
-    "sensor_1_raw": ("#live-raw-1", "partials/resistive_value.html", {"axis": "raw voltage", "unit": "V"}),
-    "sensor_2_raw": ("#live-raw-2", "partials/resistive_value.html", {"axis": "raw voltage", "unit": "V"}),
-    "sensor_1_interpolated_value": ("#live-interp-1", "partials/resistive_value.html", {"axis": "interpolated", "unit": ""}),
-    "sensor_2_interpolated_value": ("#live-interp-2", "partials/resistive_value.html", {"axis": "interpolated", "unit": ""}),
-}
-
-
-def _render_channel_envelope(device, model: str, channel: str, state):
-    if "inclinometer" in model:
-        spec = _INCLINOMETER_LIVE_CHANNELS.get(channel)
-    elif "resistive" in model or "tank" in model:
-        spec = _RESISTIVE_LIVE_CHANNELS.get(channel)
-    else:
-        spec = None
-    if spec is None:
-        return None
-    target, template, extras = spec
-    with current_app.test_request_context(f"/device/{device['device_id']}"):
-        html = render_template(
-            template,
-            value=(state or {}).get("state"),
-            **extras,
-        )
-    return {"target": target, "html": html}

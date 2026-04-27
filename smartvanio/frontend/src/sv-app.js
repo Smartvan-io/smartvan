@@ -1,38 +1,44 @@
 import { LitElement, html, css } from "lit";
-import { tokens, baseFont } from "./sv-shared.js";
+import { tokens, baseFont, ingressBase, deviceIdFromUrl } from "./sv-shared.js";
 import "./sv-device-list.js";
+import "./sv-device-detail.js";
 
 // Root component. Owns:
-//   - The persistent /ws/devices socket (server pushes JSON device lists).
-//   - The currently-open device modal (Phase 2 — for now just logs).
-//
-// The ingress prefix is whatever path the page was loaded at (HA's
-// hassio_ingress proxy strips the prefix server-side but the browser
-// keeps it on URLs). Resolve API + WS URLs relative to location.
+//   - The persistent /ws/devices socket (server pushes JSON device lists)
+//   - Client-side routing between list and device-detail views
+//   - history.pushState / popstate so back-button navigation works
 class SvApp extends LitElement {
   static properties = {
     _devices: { state: true },
     _haReady: { state: true },
+    _selectedId: { state: true },
   };
 
   constructor() {
     super();
     this._devices = [];
     this._haReady = false;
+    // Hydrate route from URL so a refresh on /device/<id> stays on the
+    // detail page instead of bouncing back to the list.
+    this._selectedId = deviceIdFromUrl();
     this._ws = null;
     this._wsBackoff = 1000;
     this._stopped = false;
+    this._onPopState = this._onPopState.bind(this);
   }
 
   connectedCallback() {
     super.connectedCallback();
     this._openDevicesSocket();
     this.addEventListener("sv-device-open", this._onDeviceOpen);
+    this.addEventListener("sv-back-to-list", this._onBackToList);
+    window.addEventListener("popstate", this._onPopState);
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
     this._stopped = true;
+    window.removeEventListener("popstate", this._onPopState);
     if (this._ws) {
       try {
         this._ws.close();
@@ -41,6 +47,18 @@ class SvApp extends LitElement {
   }
 
   render() {
+    if (this._selectedId) {
+      const device =
+        this._devices.find((d) => d.device_id === this._selectedId) || null;
+      return html`
+        <main>
+          <sv-device-detail
+            .deviceId=${this._selectedId}
+            .device=${device}
+          ></sv-device-detail>
+        </main>
+      `;
+    }
     return html`
       <main>
         <sv-device-list
@@ -54,8 +72,7 @@ class SvApp extends LitElement {
   _openDevicesSocket() {
     if (this._stopped) return;
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const base = location.pathname.replace(/\/$/, "");
-    const url = `${proto}//${location.host}${base}/ws/devices`;
+    const url = `${proto}//${location.host}${ingressBase()}/ws/devices`;
     this._ws = new WebSocket(url);
     this._ws.addEventListener("open", () => {
       this._wsBackoff = 1000;
@@ -67,7 +84,6 @@ class SvApp extends LitElement {
       } catch {
         return;
       }
-      // Server pushes { devices: [...], ha_ready: bool } envelopes.
       if (Array.isArray(payload.devices)) this._devices = payload.devices;
       if (typeof payload.ha_ready === "boolean") this._haReady = payload.ha_ready;
     });
@@ -84,11 +100,28 @@ class SvApp extends LitElement {
   }
 
   _onDeviceOpen = (ev) => {
-    const device = ev.detail.device;
+    const device = ev.detail?.device;
     if (!device || !device.device_id) return;
-    const base = location.pathname.replace(/\/$/, "");
-    location.href = `${base}/device/${encodeURIComponent(device.device_id)}`;
+    this._navigateTo(device.device_id);
   };
+
+  _onBackToList = () => {
+    this._navigateTo(null);
+  };
+
+  _navigateTo(deviceId) {
+    if (this._selectedId === deviceId) return;
+    const base = ingressBase();
+    const url = deviceId
+      ? `${base}/device/${encodeURIComponent(deviceId)}`
+      : `${base}/`;
+    history.pushState({ deviceId }, "", url);
+    this._selectedId = deviceId;
+  }
+
+  _onPopState() {
+    this._selectedId = deviceIdFromUrl();
+  }
 
   static styles = [
     tokens,
