@@ -84,9 +84,10 @@ class SvApp extends LitElement {
   }
 
   _onDeviceOpen = (ev) => {
-    // Phase 2 will swap this for a Lit modal. For now log so the click
-    // loop is verifiable end-to-end while the modal is being built.
-    console.log("sv-device-open", ev.detail.device);
+    const device = ev.detail.device;
+    if (!device || !device.device_id) return;
+    const base = location.pathname.replace(/\/$/, "");
+    location.href = `${base}/device/${encodeURIComponent(device.device_id)}`;
   };
 
   static styles = [

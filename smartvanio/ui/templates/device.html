@@ -1,3 +1,8 @@
+{% extends "base.html" %}
+
+{% block title %}{{ device.name }} — SmartVan.io{% endblock %}
+
+{% block content %}
 <header class="modal-header">
     <div>
         <div class="modal-title">{{ device.name }}</div>
@@ -7,9 +12,10 @@
             <span>{{ device.device_id }}</span>
         </div>
     </div>
-    <button type="button" class="modal-close" data-modal-close aria-label="Close">×</button>
+    <a href="{{ url_for('pages.index') }}" class="modal-close" aria-label="Back to devices">←</a>
 </header>
 
 <div class="modal-body">
     {% block device_body %}{% endblock %}
 </div>
+{% endblock %}
