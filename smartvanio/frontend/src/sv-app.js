@@ -136,7 +136,7 @@ class SvApp extends LitElement {
         box-sizing: border-box;
       }
       main {
-        max-width: 760px;
+        max-width: 1200px;
         margin: 0 auto;
       }
     `,

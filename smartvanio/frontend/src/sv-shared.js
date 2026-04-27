@@ -193,11 +193,56 @@ export const widgets = css`
   }
 `;
 
-// API base + WS base resolved relative to the current location so
-// HA's Ingress prefix is preserved transparently. Strip a trailing
-// slash so concatenation produces a clean URL.
+// Tile container styles. Mirrors the visual contract of the main
+// card's `sharedTileStyles` at
+// /Users/james/Projects/smartvan.io/smartvan.io-cards/main-card/src/smartvanio-shared.js
+// (rounded frame, 1px border, hover state, tap-highlight off). Kept
+// in sync by hand because the two codebases are separate npm projects
+// — extract to a shared package once a third consumer appears.
+export const tileFrame = css`
+  .tile {
+    background: var(--sv-card);
+    border: 1px solid var(--sv-border);
+    border-radius: var(--sv-radius);
+    padding: 14px 16px;
+    color: inherit;
+    font: inherit;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: background 0.12s ease, border-color 0.12s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .tile:hover {
+    background: var(--sv-card-hover);
+    border-color: var(--sv-border-strong);
+  }
+  .tile:focus-visible {
+    outline: 2px solid var(--sv-accent);
+    outline-offset: 2px;
+  }
+`;
+
+// HA's Ingress prefix, captured ONCE at module load.
+//
+// Reading location.pathname every call is wrong: after the SPA does a
+// history.pushState to "<ingress>/device/<id>", a later read would
+// return the post-push path and apiUrl()/wsUrl() would build doubled
+// URLs like "<ingress>/device/<id>/api/device/<id>" → 404.
+//
+// The shell is served at either "<ingress>/" (list) or
+// "<ingress>/device/<id>" (deep link), so strip a trailing
+// "/device/<id>" segment if present, then strip a trailing slash.
+const _INGRESS_BASE = (() => {
+  const path = location.pathname.replace(/\/device\/[^/]+\/?$/, "");
+  return path.replace(/\/+$/, "");
+})();
+
 export function ingressBase() {
-  return location.pathname.replace(/\/+$/, "");
+  return _INGRESS_BASE;
 }
 
 export function apiUrl(path) {
