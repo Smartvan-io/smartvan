@@ -378,10 +378,24 @@ if [ "$MODE" = "supervisor" ]; then
 
         # Configure SmartVan.io integration
         ENTRIES=$(ha_api GET "/config/config_entries/entry" 2>/dev/null || echo "[]")
-        SV_EXISTS=$(echo "$ENTRIES" | jq -r '[.[] | select(.domain == "smartvanio")] | length' 2>/dev/null || echo "0")
+        SV_HUB_EXISTS=$(echo "$ENTRIES" | jq -r '[.[] | select(.domain == "smartvanio" and .source == "user")] | length' 2>/dev/null || echo "0")
+        SV_LEGACY_IDS=$(echo "$ENTRIES" | jq -r '.[] | select(.domain == "smartvanio" and .source != "user") | .entry_id' 2>/dev/null)
 
-        if [ "$SV_EXISTS" != "0" ]; then
-            bashio::log.info "  SmartVan.io already configured"
+        # v1.0.6 created per-device entries via zeroconf (source != "user").
+        # v2.x uses one hub entry created via the user flow. If we find any
+        # legacy entries, remove them before bootstrapping the hub — leaving
+        # them in place blocks v2's setup_entry from running cleanly and the
+        # integration update entity (and others) never appear.
+        if [ -n "$SV_LEGACY_IDS" ]; then
+            bashio::log.info "  Removing v1 legacy smartvanio config entries..."
+            for legacy_id in $SV_LEGACY_IDS; do
+                ha_api DELETE "/config/config_entries/entry/${legacy_id}" >/dev/null 2>&1 || true
+                bashio::log.info "    removed ${legacy_id}"
+            done
+        fi
+
+        if [ "$SV_HUB_EXISTS" != "0" ]; then
+            bashio::log.info "  SmartVan.io hub already configured"
         else
             # The integration files were just cloned into custom_components/ in Step 2,
             # but HA only scans custom_components/ at startup. Restart HA so the
