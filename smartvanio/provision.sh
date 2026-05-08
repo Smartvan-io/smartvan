@@ -183,11 +183,14 @@ TMP_DIR=$(mktemp -d)
 
 bashio::log.info "  Cloning ${INTEGRATION_BRANCH} branch..."
 if git clone --depth 1 --branch "$INTEGRATION_BRANCH" "$INTEGRATION_REPO" "$TMP_DIR" 2>/dev/null; then
+    INTEGRATION_SHA=$(git -C "$TMP_DIR" rev-parse --short HEAD 2>/dev/null || echo "?")
+    INTEGRATION_VERSION=$(jq -r .version "$TMP_DIR/custom_components/smartvanio/manifest.json" 2>/dev/null || echo "unknown")
     rm -rf "$INTEGRATION_DIR"
     mkdir -p "$INTEGRATION_DIR"
     cp -r "$TMP_DIR/custom_components/smartvanio/"* "$INTEGRATION_DIR"/
     rm -rf "$TMP_DIR"
     bashio::log.info "  Installed to ${INTEGRATION_DIR}"
+    bashio::log.info "  Version: ${INTEGRATION_VERSION} (sha ${INTEGRATION_SHA})"
     bashio::log.info "  ($(ls "$INTEGRATION_DIR" | wc -l | tr -d ' ') files)"
 else
     rm -rf "$TMP_DIR"
