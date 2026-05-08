@@ -199,6 +199,21 @@ else
     exit 1
 fi
 
+# Restart HA so the freshly installed integration's code, manifest,
+# strings, and translations get loaded. Without this, HA continues to
+# run with whatever was cached at boot — typically v1.0.6 for users
+# upgrading — which renders modals with empty text and registers the
+# old (broken) flow handler. Always restart, even if files appear
+# unchanged: it's cheap and avoids subtle stale-cache issues.
+bashio::log.info "  Restarting HA so the new integration code loads..."
+ha_api POST "/services/homeassistant/restart" '{}' >/dev/null 2>&1 || true
+sleep 30
+if ! wait_for_ha; then
+    bashio::log.error "  HA restart timed out — re-run this app once HA is back up"
+    exit 1
+fi
+bashio::log.info "  HA back up"
+
 # ── Step 3: Install dashboard cards from GitHub ──────────────
 
 bashio::log.info ""
@@ -397,17 +412,8 @@ if [ "$MODE" = "supervisor" ]; then
         if [ "$SV_HUB_EXISTS" != "0" ]; then
             bashio::log.info "  SmartVan.io hub already configured"
         else
-            # The integration files were just cloned into custom_components/ in Step 2,
-            # but HA only scans custom_components/ at startup. Restart HA so the
-            # smartvanio flow handler is registered before we create the config entry.
-            bashio::log.info "  Restarting HA to load the freshly installed integration..."
-            ha_api POST "/services/homeassistant/restart" '{}' >/dev/null 2>&1 || true
-            sleep 30
-            if ! wait_for_ha; then
-                bashio::log.error "  HA restart timed out — re-run this app once HA is back up"
-                exit 1
-            fi
-
+            # HA was already restarted after Step 2, so the smartvanio
+            # flow handler is registered and ready.
             FLOW=$(ha_api POST "/config/config_entries/flow" \
                 '{"handler":"smartvanio","show_advanced_options":false}' 2>/dev/null || echo "")
             FLOW_ID=$(echo "$FLOW" | jq -r '.flow_id // empty' 2>/dev/null)
