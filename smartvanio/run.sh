@@ -2,31 +2,42 @@
 # SmartVan.io Add-on entrypoint.
 #
 # Two phases per boot:
-#   1. Run /opt/smartvanio/provision.sh once (gated by /data/.provisioned-v1).
-#      Re-runs if the channel option changed since last run, or if the user
-#      sets force_reprovision: true in addon options.
+#   1. Run /opt/smartvanio/provision.sh on first boot, when the addon
+#      ships with a newer INTEGRATION_TAG / CARD_TAG than was last
+#      provisioned, or when the user sets force_reprovision: true.
+#      Updating the addon container is the ONLY supported path for
+#      shipping a new integration / cards version — the addon pins
+#      both tags in provision.sh.
 #   2. Hand off to the long-running Flask + flask-sock UI under waitress.
 
-PROVISION_MARKER="/data/.provisioned-v1"
-CHANNEL_MARKER="/data/.provisioned-channel"
+PROVISION_MARKER="/data/.provisioned-tags"
 
-CHANNEL=$(bashio::config 'channel' 2>/dev/null || echo "stable")
+# Match what provision.sh pins. Keep these two `grep` lines exactly in
+# sync with the equivalent assignments in provision.sh — they're the
+# pinned versions the addon ships against, and run.sh uses them to
+# decide whether the persistent /config install is stale vs the bundled
+# tags. (Single source of truth lives in provision.sh; we read it back
+# here rather than duplicate.)
+INTEGRATION_TAG=$(grep -E '^INTEGRATION_TAG=' /opt/smartvanio/provision.sh | head -1 | cut -d'"' -f2)
+CARD_TAG=$(grep -E '^CARD_TAG=' /opt/smartvanio/provision.sh | head -1 | cut -d'"' -f2)
+BUNDLED_TAGS="${INTEGRATION_TAG}|${CARD_TAG}"
+
 FORCE_REPROVISION=$(bashio::config 'force_reprovision' 2>/dev/null || echo "false")
 
-PREV_CHANNEL=""
-if [ -f "$CHANNEL_MARKER" ]; then
-    PREV_CHANNEL=$(cat "$CHANNEL_MARKER" 2>/dev/null || echo "")
+PROVISIONED_TAGS=""
+if [ -f "$PROVISION_MARKER" ]; then
+    PROVISIONED_TAGS=$(cat "$PROVISION_MARKER" 2>/dev/null || echo "")
 fi
 
 NEED_PROVISION="false"
-if [ ! -f "$PROVISION_MARKER" ]; then
-    bashio::log.info "Provisioning marker missing — first-run provisioning."
+if [ -z "$PROVISIONED_TAGS" ]; then
+    bashio::log.info "No provisioning marker — first-run provisioning."
+    NEED_PROVISION="true"
+elif [ "$PROVISIONED_TAGS" != "$BUNDLED_TAGS" ]; then
+    bashio::log.info "Bundled tags differ from last provision (${PROVISIONED_TAGS} -> ${BUNDLED_TAGS}) — re-provisioning."
     NEED_PROVISION="true"
 elif [ "$FORCE_REPROVISION" = "true" ]; then
     bashio::log.info "force_reprovision=true — re-running provisioning."
-    NEED_PROVISION="true"
-elif [ -n "$PREV_CHANNEL" ] && [ "$PREV_CHANNEL" != "$CHANNEL" ]; then
-    bashio::log.info "Channel changed (${PREV_CHANNEL} -> ${CHANNEL}) — re-running provisioning."
     NEED_PROVISION="true"
 fi
 

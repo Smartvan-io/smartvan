@@ -34,13 +34,11 @@ map:
 options:
   mqtt_user: "smartvanio"
   mqtt_password: "smartvanio123"
-  channel: "stable"
   force_reprovision: false
 
 schema:
   mqtt_user: str
   mqtt_password: password
-  channel: list(stable|beta)
   force_reprovision: bool
 
 hassio_api: true

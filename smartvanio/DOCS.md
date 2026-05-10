@@ -40,10 +40,9 @@ Switching styles is non-destructive. Existing dashboards default to the original
 |---|---|---|
 | `mqtt_user` | `smartvanio` | Username Mosquitto creates for your devices to log in with. |
 | `mqtt_password` | `smartvanio123` | Change for any production deployment. |
-| `channel` | `stable` | Which integration / cards branch to track. Switch to `beta` to get pre-release builds. |
 | `force_reprovision` | `false` | Set to `true`, restart, to re-run the one-shot installer (Mosquitto, integration, cards, dashboard). Useful after a botched install. Set back to `false` when done. |
 
-If you change `channel`, the add-on automatically re-runs provisioning on next start.
+The add-on bundles a specific integration tag and a specific cards tag. To upgrade the integration or cards, update the add-on — provisioning re-runs automatically when the bundled tags differ from what was last installed.
 
 ## Calibration flow (resistive sensor)
 

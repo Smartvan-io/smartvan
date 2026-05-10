@@ -28,32 +28,22 @@ MQTT_USER="${MQTT_USER:-smartvanio}"
 MQTT_PASSWORD="${MQTT_PASSWORD:-smartvanio123}"
 
 INTEGRATION_REPO="https://github.com/Smartvan-io/integration.git"
-CHANNEL=$(bashio::config 'channel' 2>/dev/null || echo "stable")
 
-# TEMP for v1 testing — until we cut v2 release tags and merge to
-# main on each repo:
-#   - integration v2 (MQTT-only) lives on `beta`. main is still the
-#     old v1.0.6 ESPHome-API version that errors with
-#     "Requirements for smartvanio not found: ['aioesphomeapi==29.0.0']".
-#   - cards v2 (display-only + variants) lives on
-#     `feature-v1-public-release`. main is still v1.x with the
-#     in-card config UI we replaced.
-# Both channels temporarily point at the working branches.
-if [ "$CHANNEL" = "beta" ]; then
-    INTEGRATION_BRANCH="beta"
-    CARD_BRANCH="beta"
-else
-    INTEGRATION_BRANCH="beta"
-    CARD_BRANCH="feature-v1-public-release"
-fi
+# Pinned versions. Each addon release ships against a specific
+# integration + card tag, so the addon container determines exactly
+# what gets installed — no branch-tracking, no drift between addon
+# version and integration version. To ship a new integration or card,
+# bump the tag here and cut a new addon release.
+INTEGRATION_TAG="v3.0.0"
+CARD_TAG="v2.0.0"
 
 # Each sensor card lives in its own repo under the Smartvan-io org.
 # Note: card repos are NOT under the `smartvanio-` prefix that the
 # integration repo uses.
-INCLINOMETER_CARD_URL="https://raw.githubusercontent.com/Smartvan-io/inclinometer-card/refs/heads/${CARD_BRANCH}"
-RESISTIVE_CARD_URL="https://raw.githubusercontent.com/Smartvan-io/resistive-sensor-card/refs/heads/${CARD_BRANCH}"
+INCLINOMETER_CARD_URL="https://raw.githubusercontent.com/Smartvan-io/inclinometer-card/refs/tags/${CARD_TAG}"
+RESISTIVE_CARD_URL="https://raw.githubusercontent.com/Smartvan-io/resistive-sensor-card/refs/tags/${CARD_TAG}"
 
-bashio::log.info "  Channel: ${CHANNEL} (integration=${INTEGRATION_BRANCH}, cards=${CARD_BRANCH})"
+bashio::log.info "  Pinned: integration=${INTEGRATION_TAG}, cards=${CARD_TAG}"
 
 # ── Helpers ──────────────────────────────────────────────────
 
@@ -181,8 +171,8 @@ bashio::log.info "Step 2/5: Installing SmartVan.io integration..."
 INTEGRATION_DIR="/config/custom_components/smartvanio"
 TMP_DIR=$(mktemp -d)
 
-bashio::log.info "  Cloning ${INTEGRATION_BRANCH} branch..."
-if git clone --depth 1 --branch "$INTEGRATION_BRANCH" "$INTEGRATION_REPO" "$TMP_DIR" 2>/dev/null; then
+bashio::log.info "  Cloning tag ${INTEGRATION_TAG}..."
+if git clone --depth 1 --branch "$INTEGRATION_TAG" "$INTEGRATION_REPO" "$TMP_DIR" 2>/dev/null; then
     INTEGRATION_SHA=$(git -C "$TMP_DIR" rev-parse --short HEAD 2>/dev/null || echo "?")
     INTEGRATION_VERSION=$(jq -r .version "$TMP_DIR/custom_components/smartvanio/manifest.json" 2>/dev/null || echo "unknown")
     rm -rf "$INTEGRATION_DIR"
@@ -446,25 +436,23 @@ fi
 
 # ── Summary ──────────────────────────────────────────────────
 
-# ── Persist provisioning markers ─────────────────────────────
-# Tells run.sh on subsequent boots to skip provisioning. Versioning
-# the marker (-v1) lets a future rev re-run unconditionally by bumping
-# the suffix. Channel marker triggers re-provisioning on stable<->beta.
+# ── Persist provisioning marker ──────────────────────────────
+# Stamp the marker with the tag pair we just installed. run.sh
+# compares this against its own bundled tags on next boot — if the
+# addon was updated, the bundled tags will be newer and provisioning
+# re-runs automatically.
 
 mkdir -p /data
-echo "1" > /data/.provisioned-v1
-CHANNEL=$(bashio::config 'channel' 2>/dev/null || echo "stable")
-echo "${CHANNEL}" > /data/.provisioned-channel
+echo "${INTEGRATION_TAG}|${CARD_TAG}" > /data/.provisioned-tags
 
 bashio::log.info ""
 bashio::log.info "============================================="
 bashio::log.info "  SmartVan.io setup complete!"
 bashio::log.info ""
 bashio::log.info "  Installed:"
-bashio::log.info "    Integration: /config/custom_components/smartvanio/"
-bashio::log.info "    Cards:       /config/www/smartvanio/"
+bashio::log.info "    Integration: ${INTEGRATION_TAG} -> /config/custom_components/smartvanio/"
+bashio::log.info "    Cards:       ${CARD_TAG} -> /config/www/smartvanio/"
 bashio::log.info "    Dashboard:   /config/dashboards/smartvanio.yaml"
-bashio::log.info "    Channel:     ${CHANNEL}"
 bashio::log.info ""
 if [ "$MODE" = "standalone" ]; then
     bashio::log.info "  Restart HA to pick up the changes."
