@@ -35,7 +35,7 @@ INTEGRATION_REPO="https://github.com/Smartvan-io/integration.git"
 # version and integration version. To ship a new integration or card,
 # bump the tag here and cut a new addon release.
 INTEGRATION_TAG="v3.0.0"
-CARD_TAG="v2.0.0"
+CARD_TAG="v3.0.0-rc1"
 
 # Each sensor card lives in its own repo under the Smartvan-io org.
 # Note: card repos are NOT under the `smartvanio-` prefix that the
