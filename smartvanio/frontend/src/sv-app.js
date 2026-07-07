@@ -2,6 +2,7 @@ import { LitElement, html, css } from "lit";
 import { tokens, baseFont, ingressBase, deviceIdFromUrl } from "./sv-shared.js";
 import "./sv-device-list.js";
 import "./sv-device-detail.js";
+import "./sv-uninstall.js";
 
 // Root component. Owns:
 //   - The persistent /ws/devices socket (server pushes JSON device lists)
@@ -65,6 +66,7 @@ class SvApp extends LitElement {
           .devices=${this._devices}
           ?ha-ready=${this._haReady}
         ></sv-device-list>
+        <sv-uninstall></sv-uninstall>
       </main>
     `;
   }
