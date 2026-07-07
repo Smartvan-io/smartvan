@@ -195,14 +195,53 @@ fi
 # upgrading — which renders modals with empty text and registers the
 # old (broken) flow handler. Always restart, even if files appear
 # unchanged: it's cheap and avoids subtle stale-cache issues.
-bashio::log.info "  Restarting HA so the new integration code loads..."
-ha_api POST "/services/homeassistant/restart" '{}' >/dev/null 2>&1 || true
-sleep 30
-if ! wait_for_ha; then
-    bashio::log.error "  HA restart timed out — re-run this app once HA is back up"
-    exit 1
+#
+# Use the Supervisor API rather than calling homeassistant.restart
+# through HA itself — Supervisor stops/starts the container directly
+# and works even when HA is in a degraded state (failed integration
+# load, partial boot, etc.). The HA service-call path is fragile
+# because the call relies on the very subsystem we're trying to
+# restart.
+if [ "$MODE" = "supervisor" ]; then
+    bashio::log.info "  Restarting HA so the new integration code loads..."
+    RESTART_RESULT=$(curl -s -X POST \
+        -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+        "http://supervisor/core/restart")
+    RESTART_STATUS=$(echo "$RESTART_RESULT" | jq -r '.result // "error"' 2>/dev/null)
+
+    if [ "$RESTART_STATUS" != "ok" ]; then
+        bashio::log.error "  Supervisor restart call failed: ${RESTART_RESULT}"
+        bashio::log.error "  Re-run this app once HA is restarted manually"
+        exit 1
+    fi
+
+    # Verify HA actually went down before waiting for it to come back up.
+    # Without this check, a no-op restart (or one that failed silently
+    # despite a 200 response) would let us proceed against a stale HA.
+    bashio::log.info "  Waiting for HA to stop responding..."
+    HA_WENT_DOWN=0
+    for i in $(seq 1 30); do
+        if ! ha_api GET "/" 2>/dev/null | grep -q "API running"; then
+            HA_WENT_DOWN=1
+            break
+        fi
+        sleep 1
+    done
+
+    if [ "$HA_WENT_DOWN" != "1" ]; then
+        bashio::log.error "  HA never went down after restart call — supervisor may have rejected it"
+        bashio::log.error "  Re-run this app after restarting HA manually (Settings → System → Restart)"
+        exit 1
+    fi
+
+    if ! wait_for_ha; then
+        bashio::log.error "  HA restart timed out — re-run this app once HA is back up"
+        exit 1
+    fi
+    bashio::log.info "  HA back up"
+else
+    bashio::log.info "  Standalone mode — restart HA manually before continuing"
 fi
-bashio::log.info "  HA back up"
 
 # ── Step 3: Install dashboard cards from GitHub ──────────────
 
