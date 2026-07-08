@@ -1,17 +1,31 @@
 import { LitElement, html, css } from "lit";
 import { tokens, baseFont, widgets, postJson } from "./sv-shared.js";
+import "./sv-shoelace.js";
 
-// Resistive sensor calibration page. Renders one card per sensor (1, 2)
-// with the interpolation editor + limits. Add/Remove rows are pure
-// client-side state changes — Save POSTs the full points array.
+// Resistive sensor calibration page. One card per sensor with the
+// interpolation editor, method and limits. Edits are held in local state and
+// persisted together by a single "Save calibration" button per sensor (each
+// changed field still POSTs to its own endpoint under the hood), replacing the
+// previous form-per-field layout with its five separate Save buttons.
+
+// Map local field keys to their REST endpoint segment.
+const NUMBER_FIELDS = {
+  min_r: "min-resistance",
+  max_r: "max-resistance",
+  threshold: "threshold",
+};
+
+const cloneSnap = (s) => ({ ...s, points: s.points.map((p) => [...p]) });
+
 export class SvResistivePage extends LitElement {
   static properties = {
     deviceId: { type: String },
     data: { attribute: false },
     live: { attribute: false },
-    _localPoints: { state: true }, // {1: [[v,p],...], 2: [...]}
-    _result: { state: true }, // {sensor_n.field: {ok, message}}
-    _busy: { state: true },
+    _local: { state: true }, // {n: {points, kind, min_r, max_r, threshold}}
+    _saved: { state: true }, // last-persisted snapshot, for dirty checks
+    _status: { state: true }, // {n: {ok, message} | null}
+    _busy: { state: true }, // {n: bool}
   };
 
   constructor() {
@@ -19,26 +33,34 @@ export class SvResistivePage extends LitElement {
     this.deviceId = "";
     this.data = null;
     this.live = {};
-    this._localPoints = {};
-    this._result = {};
-    this._busy = false;
+    this._local = {};
+    this._saved = {};
+    this._status = {};
+    this._busy = {};
   }
 
   willUpdate(changed) {
-    // Seed local point state from the hydration payload exactly once.
-    // After that, the user's edits live in `_localPoints` and we only
-    // overwrite if the data prop is replaced (i.e. fresh hydration on
-    // device switch).
+    // Seed local + saved snapshots from hydration, once per sensor. After
+    // that the user's edits live in `_local` and we only re-seed a sensor we
+    // haven't seen (fresh device).
     if (changed.has("data") && this.data) {
-      const seeded = {};
-      for (const sensor of this.data.sensors || []) {
-        if (this._localPoints[sensor.n] == null) {
-          seeded[sensor.n] = (sensor.points || []).map((p) => [...p]);
+      const local = { ...this._local };
+      const saved = { ...this._saved };
+      for (const s of this.data.sensors || []) {
+        if (local[s.n] == null) {
+          const snap = {
+            points: (s.points || []).map((p) => [...p]),
+            kind: s.kind_value || "",
+            min_r: s.min_r == null ? "" : String(s.min_r),
+            max_r: s.max_r == null ? "" : String(s.max_r),
+            threshold: s.threshold == null ? "" : String(s.threshold),
+          };
+          local[s.n] = snap;
+          saved[s.n] = cloneSnap(snap);
         }
       }
-      if (Object.keys(seeded).length) {
-        this._localPoints = { ...this._localPoints, ...seeded };
-      }
+      this._local = local;
+      this._saved = saved;
     }
   }
 
@@ -49,13 +71,17 @@ export class SvResistivePage extends LitElement {
 
   _renderSensor(sensor) {
     const n = sensor.n;
+    const local = this._local[n];
+    if (!local) return null;
     const raw = this._liveValue(`sensor_${n}_raw`, sensor.raw_value);
     const interp = this._liveValue(
       `sensor_${n}_interpolated_value`,
       sensor.interpolated_value,
     );
     const open = this._liveBool(`sensor_${n}_input_open`, sensor.input_open);
-    const points = this._localPoints[n] || [];
+    const dirty = this._isDirty(n);
+    const busy = !!this._busy[n];
+    const status = this._status[n];
 
     return html`
       <section class="card">
@@ -76,84 +102,105 @@ export class SvResistivePage extends LitElement {
         <h3>Calibration points</h3>
         <p class="muted">
           Each point maps a measured voltage to an output value. Add at least
-          two points; more give a finer curve.
+          two; more points give a finer curve.
         </p>
-        <div class="points-editor">
-          ${points.length === 0
-            ? html`<p class="muted">No points yet — add some.</p>`
-            : points.map(
+        <div class="points">
+          ${local.points.length === 0
+            ? html`<p class="muted">No points yet — add one below.</p>`
+            : local.points.map(
                 ([v, p], i) => html`
                   <div class="point-row">
-                    <input
+                    <sl-input
                       type="number"
+                      size="small"
                       step="any"
-                      .value=${String(v)}
-                      @input=${(e) => this._editPoint(n, i, 0, e.target.value)}
-                    />
+                      value=${String(v)}
+                      @sl-input=${(e) => this._editPoint(n, i, 0, e.target.value)}
+                    ></sl-input>
                     <span class="muted">V →</span>
-                    <input
+                    <sl-input
                       type="number"
+                      size="small"
                       step="any"
-                      .value=${String(p)}
-                      @input=${(e) => this._editPoint(n, i, 1, e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      class="secondary remove-point"
-                      aria-label="remove"
+                      value=${String(p)}
+                      @sl-input=${(e) => this._editPoint(n, i, 1, e.target.value)}
+                    ></sl-input>
+                    <sl-button
+                      size="small"
+                      circle
+                      variant="default"
+                      aria-label="Remove point"
                       @click=${() => this._removePoint(n, i)}
+                      >×</sl-button
                     >
-                      ×
-                    </button>
                   </div>
                 `,
               )}
-          <div class="button-row">
-            <button
-              type="button"
-              class="secondary"
-              @click=${() => this._addPoint(n)}
-            >
-              + Add point
-            </button>
-            <button
-              type="button"
-              ?disabled=${this._busy}
-              @click=${() => this._savePoints(n)}
-            >
-              Save
-            </button>
-          </div>
+          <sl-button
+            size="small"
+            variant="default"
+            @click=${() => this._addPoint(n)}
+            >+ Add point</sl-button
+          >
         </div>
-        ${this._renderResult(`s${n}_points`)}
 
         <h3>Interpolation method</h3>
-        <form
-          class="inline-form"
-          @submit=${(ev) => this._saveSelect(ev, n, "interpolation-kind")}
+        <sl-select
+          size="small"
+          value=${local.kind}
+          @sl-change=${(e) => this._edit(n, "kind", e.target.value)}
+          class="method"
         >
-          <select name="option" .value=${sensor.kind_value || ""} required>
-            ${(sensor.kind_options || []).map(
-              (opt) => html`
-                <option value=${opt} ?selected=${opt === sensor.kind_value}>
-                  ${opt}
-                </option>
-              `,
-            )}
-          </select>
-          <button type="submit" ?disabled=${this._busy}>Save</button>
-        </form>
-        ${this._renderResult(`s${n}_interpolation-kind`)}
+          ${(sensor.kind_options || []).map(
+            (opt) => html`<sl-option value=${opt}>${opt}</sl-option>`,
+          )}
+        </sl-select>
 
         <h3>Limits</h3>
-        ${this._numberField(n, "min-resistance", "Min resistance (Ω)", sensor.min_r)}
-        ${this._numberField(n, "max-resistance", "Max resistance (Ω)", sensor.max_r)}
-        ${this._numberField(
-          n,
-          "threshold",
-          "Open-circuit threshold (V)",
-          sensor.threshold,
-        )}
+        <div class="limits">
+          <sl-input
+            type="number"
+            size="small"
+            step="any"
+            label="Min resistance (Ω)"
+            value=${local.min_r}
+            @sl-input=${(e) => this._edit(n, "min_r", e.target.value)}
+          ></sl-input>
+          <sl-input
+            type="number"
+            size="small"
+            step="any"
+            label="Max resistance (Ω)"
+            value=${local.max_r}
+            @sl-input=${(e) => this._edit(n, "max_r", e.target.value)}
+          ></sl-input>
+          <sl-input
+            type="number"
+            size="small"
+            step="any"
+            label="Open-circuit threshold (V)"
+            value=${local.threshold}
+            @sl-input=${(e) => this._edit(n, "threshold", e.target.value)}
+          ></sl-input>
+        </div>
+
+        <div class="save-bar">
+          <sl-button
+            variant="primary"
+            ?disabled=${!dirty || busy}
+            ?loading=${busy}
+            @click=${() => this._save(n)}
+            >${dirty ? "Save calibration" : "Saved"}</sl-button
+          >
+          ${status
+            ? html`<sl-alert
+                variant=${status.ok ? "success" : "danger"}
+                open
+                class="status"
+                >${status.message}</sl-alert
+              >`
+            : null}
+        </div>
       </section>
     `;
   }
@@ -170,37 +217,6 @@ export class SvResistivePage extends LitElement {
     `;
   }
 
-  _numberField(n, field, label, initial) {
-    return html`
-      <form
-        class="inline-form"
-        style="margin-top:8px"
-        @submit=${(ev) => this._saveNumber(ev, n, field)}
-      >
-        <label>
-          ${label}
-          <input
-            type="number"
-            name="value"
-            step="any"
-            .value=${initial == null ? "" : String(initial)}
-            required
-          />
-        </label>
-        <button type="submit" ?disabled=${this._busy}>Save</button>
-      </form>
-      ${this._renderResult(`s${n}_${field}`)}
-    `;
-  }
-
-  _renderResult(key) {
-    const r = this._result[key];
-    if (!r) return html`<div class="result"></div>`;
-    return html`
-      <div class="result ${r.ok ? "ok" : "warn"}">${r.message}</div>
-    `;
-  }
-
   _liveValue(channel, fallback) {
     const live = this.live?.[channel];
     if (live && live.value != null && live.value !== "") return live.value;
@@ -213,63 +229,93 @@ export class SvResistivePage extends LitElement {
     return Boolean(fallback);
   }
 
+  _isDirty(n) {
+    return JSON.stringify(this._local[n]) !== JSON.stringify(this._saved[n]);
+  }
+
+  _edit(n, field, value) {
+    this._local = {
+      ...this._local,
+      [n]: { ...this._local[n], [field]: value },
+    };
+    if (this._status[n]) this._status = { ...this._status, [n]: null };
+  }
+
   _editPoint(n, i, col, raw) {
     const value = raw === "" ? 0 : Number(raw);
     if (Number.isNaN(value)) return;
-    const points = (this._localPoints[n] || []).map((row) => [...row]);
+    const points = this._local[n].points.map((row) => [...row]);
     if (!points[i]) return;
     points[i][col] = value;
-    this._localPoints = { ...this._localPoints, [n]: points };
+    this._edit(n, "points", points);
   }
 
   _addPoint(n) {
-    const points = [...(this._localPoints[n] || []), [0, 0]];
-    this._localPoints = { ...this._localPoints, [n]: points };
+    this._edit(n, "points", [...this._local[n].points, [0, 0]]);
   }
 
   _removePoint(n, i) {
-    const points = (this._localPoints[n] || []).filter((_, idx) => idx !== i);
-    this._localPoints = { ...this._localPoints, [n]: points };
+    this._edit(
+      n,
+      "points",
+      this._local[n].points.filter((_, idx) => idx !== i),
+    );
   }
 
-  async _savePoints(n) {
-    this._busy = true;
-    const result = await postJson(
-      `/api/device/${encodeURIComponent(this.deviceId)}/resistive/${n}/points/save`,
-      { points: this._localPoints[n] || [] },
-    );
-    this._result = { ...this._result, [`s${n}_points`]: result };
-    if (result.ok && Array.isArray(result.points)) {
-      this._localPoints = {
-        ...this._localPoints,
-        [n]: result.points.map((p) => [...p]),
+  // Persist every field that differs from the saved snapshot. Each field
+  // keeps its own endpoint; we fan out concurrently and report one result.
+  async _save(n) {
+    const local = this._local[n];
+    const saved = this._saved[n];
+    const id = encodeURIComponent(this.deviceId);
+    const calls = [];
+
+    if (JSON.stringify(local.points) !== JSON.stringify(saved.points)) {
+      calls.push(
+        postJson(`/api/device/${id}/resistive/${n}/points/save`, {
+          points: local.points,
+        }),
+      );
+    }
+    if (local.kind !== saved.kind) {
+      calls.push(
+        postJson(`/api/device/${id}/resistive/${n}/interpolation-kind`, {
+          option: local.kind,
+        }),
+      );
+    }
+    for (const [key, seg] of Object.entries(NUMBER_FIELDS)) {
+      if (local[key] !== saved[key]) {
+        calls.push(
+          postJson(`/api/device/${id}/resistive/${n}/${seg}`, {
+            value: local[key],
+          }),
+        );
+      }
+    }
+
+    if (calls.length === 0) return;
+    this._busy = { ...this._busy, [n]: true };
+    const results = await Promise.all(calls);
+    this._busy = { ...this._busy, [n]: false };
+
+    const failed = results.filter((r) => !r.ok);
+    if (failed.length === 0) {
+      this._saved = { ...this._saved, [n]: cloneSnap(local) };
+      this._status = {
+        ...this._status,
+        [n]: { ok: true, message: "Calibration saved." },
+      };
+    } else {
+      this._status = {
+        ...this._status,
+        [n]: {
+          ok: false,
+          message:
+            failed[0].message || `${failed.length} change(s) failed to save.`,
+        },
       };
     }
-    this._busy = false;
-  }
-
-  async _saveNumber(ev, n, field) {
-    ev.preventDefault();
-    const value = new FormData(ev.target).get("value");
-    this._busy = true;
-    const result = await postJson(
-      `/api/device/${encodeURIComponent(this.deviceId)}/resistive/${n}/${field}`,
-      { value },
-    );
-    this._result = { ...this._result, [`s${n}_${field}`]: result };
-    this._busy = false;
-  }
-
-  async _saveSelect(ev, n, field) {
-    ev.preventDefault();
-    const option = new FormData(ev.target).get("option");
-    this._busy = true;
-    const result = await postJson(
-      `/api/device/${encodeURIComponent(this.deviceId)}/resistive/${n}/${field}`,
-      { option },
-    );
-    this._result = { ...this._result, [`s${n}_${field}`]: result };
-    this._busy = false;
   }
 
   static styles = [
@@ -277,28 +323,41 @@ export class SvResistivePage extends LitElement {
     baseFont,
     widgets,
     css`
-      .points-editor {
+      .points {
         display: flex;
         flex-direction: column;
-        gap: 6px;
-        background: var(--sv-input);
-        border: 1px solid var(--sv-border);
-        border-radius: 8px;
-        padding: 12px;
+        gap: 8px;
+        align-items: flex-start;
       }
       .point-row {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 8px;
       }
-      .point-row input[type="number"] {
-        width: 100px;
+      .point-row sl-input {
+        width: 120px;
       }
-      .remove-point {
-        width: 32px;
-        padding: 4px 0;
-        text-align: center;
-        line-height: 1;
+      .method {
+        max-width: 280px;
+      }
+      .limits {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 12px;
+      }
+      .save-bar {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-top: 20px;
+        flex-wrap: wrap;
+      }
+      .save-bar .status {
+        flex: 1;
+        min-width: 200px;
+      }
+      sl-alert::part(base) {
+        padding: 6px 12px;
       }
     `,
   ];
