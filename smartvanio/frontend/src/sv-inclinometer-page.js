@@ -1,8 +1,9 @@
 import { LitElement, html, css } from "lit";
 import { tokens, baseFont, widgets, postJson } from "./sv-shared.js";
+import { slCard } from "./sv-shoelace.js";
 
-// Inclinometer calibration page. Stateless w.r.t. live values — those
-// are pushed in via the `live` property on every WS frame.
+// Inclinometer calibration page. Live values are pushed in via the `live`
+// property on every WS frame. All controls are Shoelace.
 export class SvInclinometerPage extends LitElement {
   static properties = {
     deviceId: { type: String },
@@ -32,33 +33,36 @@ export class SvInclinometerPage extends LitElement {
     const orientation = this._liveValue("orientation", d.orientation_value);
 
     return html`
-      <section class="card">
-        <div class="card-header"><h2>Live readings</h2></div>
+      <sl-card>
+        <div slot="header"><h2>Live readings</h2></div>
         <div class="live-grid">
           ${this._angleCard("pitch", pitch)} ${this._angleCard("roll", roll)}
         </div>
-      </section>
+      </sl-card>
 
-      <section class="card">
-        <div class="card-header"><h2>Orientation</h2></div>
+      <sl-card>
+        <div slot="header"><h2>Orientation</h2></div>
         <p class="muted">Pick the face of the board that is mounted up.</p>
-        <form class="inline-form" @submit=${this._saveOrientation}>
-          <select name="option" .value=${orientation || ""} required>
+        <div class="row">
+          <sl-select
+            size="small"
+            class="grow"
+            .value=${orientation || ""}
+            @sl-change=${(e) => this._saveOrientation(e.target.value)}
+          >
             ${(d.orientation_options || []).map(
-              (opt) => html`
-                <option value=${opt} ?selected=${opt === orientation}>
-                  ${opt}
-                </option>
-              `,
+              (opt) => html`<sl-option value=${opt}>${opt}</sl-option>`,
             )}
-          </select>
-          <button type="submit" ?disabled=${this._busy}>Save</button>
-        </form>
+          </sl-select>
+        </div>
         ${this._renderResult(this._orientationResult)}
-      </section>
+      </sl-card>
 
       ${["pitch", "roll"].map((axis) =>
-        this._compensationCard(axis, axis === "pitch" ? d.pitch_compensation : d.roll_compensation),
+        this._compensationCard(
+          axis,
+          axis === "pitch" ? d.pitch_compensation : d.roll_compensation,
+        ),
       )}
     `;
   }
@@ -68,61 +72,59 @@ export class SvInclinometerPage extends LitElement {
     return html`
       <div class="angle-card">
         <div class="angle-axis">${axis}</div>
-        <div class="angle-value">
-          ${display}<span class="angle-unit">°</span>
-        </div>
+        <div class="angle-value">${display}<span class="angle-unit">°</span></div>
       </div>
     `;
   }
 
   _compensationCard(axis, initialValue) {
     const result = axis === "pitch" ? this._pitchResult : this._rollResult;
+    const label = axis[0].toUpperCase() + axis.slice(1);
     return html`
-      <section class="card">
-        <div class="card-header">
-          <h2>${axis[0].toUpperCase() + axis.slice(1)} compensation</h2>
-        </div>
-        <p class="muted">Manual offset (in degrees) added to the ${axis} reading.</p>
-        <form
-          class="inline-form"
-          @submit=${(ev) => this._saveCompensation(ev, axis)}
-        >
-          <input
+      <sl-card>
+        <div slot="header"><h2>${label} compensation</h2></div>
+        <p class="muted">
+          Manual offset (in degrees) added to the ${axis} reading.
+        </p>
+        <div class="row">
+          <sl-input
             type="number"
-            name="value"
+            size="small"
             step="0.1"
+            class="comp"
             .value=${initialValue == null ? "0" : String(initialValue)}
-            required
-          />
-          <button type="submit" ?disabled=${this._busy}>Save</button>
-        </form>
+            id=${`comp-${axis}`}
+          ></sl-input>
+          <sl-button
+            variant="primary"
+            ?disabled=${this._busy}
+            @click=${() => this._saveCompensation(axis)}
+            >Save</sl-button
+          >
+        </div>
         <div class="button-row">
-          <button
-            type="button"
-            class="secondary"
+          <sl-button
             ?disabled=${this._busy}
             @click=${() => this._calibrate(axis, "calibrate")}
+            >Calibrate from current position</sl-button
           >
-            Calibrate from current position
-          </button>
-          <button
-            type="button"
-            class="secondary"
+          <sl-button
             ?disabled=${this._busy}
             @click=${() => this._calibrate(axis, "reset")}
+            >Reset to zero</sl-button
           >
-            Reset to zero
-          </button>
         </div>
         ${this._renderResult(result)}
-      </section>
+      </sl-card>
     `;
   }
 
   _renderResult(result) {
-    if (!result) return html`<div class="result"></div>`;
+    if (!result) return null;
     return html`
-      <div class="result ${result.ok ? "ok" : "warn"}">${result.message}</div>
+      <sl-alert variant=${result.ok ? "success" : "danger"} open class="status"
+        >${result.message}</sl-alert
+      >
     `;
   }
 
@@ -132,9 +134,7 @@ export class SvInclinometerPage extends LitElement {
     return fallback;
   }
 
-  async _saveOrientation(ev) {
-    ev.preventDefault();
-    const option = new FormData(ev.target).get("option");
+  async _saveOrientation(option) {
     this._busy = true;
     this._orientationResult = await postJson(
       `/api/device/${encodeURIComponent(this.deviceId)}/inclinometer/orientation`,
@@ -143,9 +143,9 @@ export class SvInclinometerPage extends LitElement {
     this._busy = false;
   }
 
-  async _saveCompensation(ev, axis) {
-    ev.preventDefault();
-    const value = new FormData(ev.target).get("value");
+  async _saveCompensation(axis) {
+    const input = this.renderRoot.querySelector(`#comp-${axis}`);
+    const value = input ? input.value : "0";
     this._busy = true;
     const result = await postJson(
       `/api/device/${encodeURIComponent(this.deviceId)}/inclinometer/${axis}-compensation`,
@@ -167,7 +167,40 @@ export class SvInclinometerPage extends LitElement {
     this._busy = false;
   }
 
-  static styles = [tokens, baseFont, widgets, css``];
+  static styles = [
+    tokens,
+    baseFont,
+    widgets,
+    slCard,
+    css`
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .grow {
+        flex: 1;
+        min-width: 200px;
+        max-width: 320px;
+      }
+      .comp {
+        width: 140px;
+      }
+      .status {
+        margin-top: 12px;
+      }
+      .status::part(base) {
+        padding: 8px 14px;
+      }
+      .button-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+      }
+    `,
+  ];
 }
 
 customElements.define("sv-inclinometer-page", SvInclinometerPage);

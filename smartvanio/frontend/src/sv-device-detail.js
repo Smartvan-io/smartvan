@@ -1,5 +1,6 @@
 import { LitElement, html, css } from "lit";
 import { tokens, baseFont, widgets, getJson, wsUrl } from "./sv-shared.js";
+import "./sv-shoelace.js";
 import "./sv-inclinometer-page.js";
 import "./sv-resistive-page.js";
 import "./sv-led-page.js";
@@ -120,14 +121,19 @@ export class SvDeviceDetail extends LitElement {
     const device = this._payload?.device || this.device;
     return html`
       <header class="header">
-        <button class="back" type="button" @click=${this._back} aria-label="Back">
-          ←
-        </button>
+        <sl-button
+          class="back"
+          circle
+          size="small"
+          @click=${this._back}
+          aria-label="Back"
+          >←</sl-button
+        >
         <div class="title-block">
           <div class="title">${device?.name || this.deviceId}</div>
           <div class="subtitle">
             ${device?.model
-              ? html`<span class="badge">${device.model}</span>`
+              ? html`<sl-tag size="small" pill>${device.model}</sl-tag>`
               : null}
             ${device?.sw_version
               ? html`<span class="muted">fw ${device.sw_version}</span>`
@@ -143,7 +149,9 @@ export class SvDeviceDetail extends LitElement {
 
   _renderBody() {
     if (this._error) {
-      return html`<p class="error">Couldn't load this device: ${this._error}</p>`;
+      return html`<sl-alert variant="danger" open
+        >Couldn't load this device: ${this._error}</sl-alert
+      >`;
     }
     if (!this._payload) {
       return html`<p class="muted">Loading…</p>`;

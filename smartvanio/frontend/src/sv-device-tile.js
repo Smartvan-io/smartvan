@@ -8,6 +8,7 @@
 
 import { LitElement, html, css, svg } from "lit";
 import { tokens, baseFont, tileFrame } from "./sv-shared.js";
+import "./sv-shoelace.js";
 
 // MDI icon paths (24x24 viewBox). Inlined to avoid pulling @mdi/js for
 // four glyphs.
@@ -55,7 +56,9 @@ export class SvDeviceTile extends LitElement {
         <span class="body">
           <span class="name">${d.name || d.device_id || "Device"}</span>
           <span class="meta">
-            ${d.model ? html`<span class="badge">${d.model}</span>` : null}
+            ${d.model
+              ? html`<sl-tag size="small" pill>${d.model}</sl-tag>`
+              : null}
             ${d.sw_version ? html`<span class="muted">fw ${d.sw_version}</span>` : null}
           </span>
           <span class="id muted">${d.device_id || ""}</span>

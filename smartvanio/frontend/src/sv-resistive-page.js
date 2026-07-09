@@ -1,14 +1,12 @@
 import { LitElement, html, css } from "lit";
 import { tokens, baseFont, widgets, postJson } from "./sv-shared.js";
-import "./sv-shoelace.js";
+import { slCard } from "./sv-shoelace.js";
 
-// Resistive sensor calibration page. One card per sensor with the
+// Resistive sensor calibration page. One sl-card per sensor with the
 // interpolation editor, method and limits. Edits are held in local state and
 // persisted together by a single "Save calibration" button per sensor (each
-// changed field still POSTs to its own endpoint under the hood), replacing the
-// previous form-per-field layout with its five separate Save buttons.
+// changed field still POSTs to its own endpoint under the hood).
 
-// Map local field keys to their REST endpoint segment.
 const NUMBER_FIELDS = {
   min_r: "min-resistance",
   max_r: "max-resistance",
@@ -22,10 +20,10 @@ export class SvResistivePage extends LitElement {
     deviceId: { type: String },
     data: { attribute: false },
     live: { attribute: false },
-    _local: { state: true }, // {n: {points, kind, min_r, max_r, threshold}}
-    _saved: { state: true }, // last-persisted snapshot, for dirty checks
-    _status: { state: true }, // {n: {ok, message} | null}
-    _busy: { state: true }, // {n: bool}
+    _local: { state: true },
+    _saved: { state: true },
+    _status: { state: true },
+    _busy: { state: true },
   };
 
   constructor() {
@@ -40,9 +38,6 @@ export class SvResistivePage extends LitElement {
   }
 
   willUpdate(changed) {
-    // Seed local + saved snapshots from hydration, once per sensor. After
-    // that the user's edits live in `_local` and we only re-seed a sensor we
-    // haven't seen (fresh device).
     if (changed.has("data") && this.data) {
       const local = { ...this._local };
       const saved = { ...this._saved };
@@ -84,12 +79,12 @@ export class SvResistivePage extends LitElement {
     const status = this._status[n];
 
     return html`
-      <section class="card">
-        <div class="card-header">
+      <sl-card>
+        <div slot="header">
           <h2>Sensor ${n}</h2>
           ${open
-            ? html`<span class="muted"
-                ><span class="dot dot-warn"></span>open circuit</span
+            ? html`<sl-tag variant="warning" size="small" pill
+                >open circuit</sl-tag
               >`
             : null}
         </div>
@@ -114,7 +109,7 @@ export class SvResistivePage extends LitElement {
                       type="number"
                       size="small"
                       step="any"
-                      value=${String(v)}
+                      .value=${String(v)}
                       @sl-input=${(e) => this._editPoint(n, i, 0, e.target.value)}
                     ></sl-input>
                     <span class="muted">V →</span>
@@ -122,13 +117,12 @@ export class SvResistivePage extends LitElement {
                       type="number"
                       size="small"
                       step="any"
-                      value=${String(p)}
+                      .value=${String(p)}
                       @sl-input=${(e) => this._editPoint(n, i, 1, e.target.value)}
                     ></sl-input>
                     <sl-button
                       size="small"
                       circle
-                      variant="default"
                       aria-label="Remove point"
                       @click=${() => this._removePoint(n, i)}
                       >×</sl-button
@@ -136,10 +130,7 @@ export class SvResistivePage extends LitElement {
                   </div>
                 `,
               )}
-          <sl-button
-            size="small"
-            variant="default"
-            @click=${() => this._addPoint(n)}
+          <sl-button size="small" @click=${() => this._addPoint(n)}
             >+ Add point</sl-button
           >
         </div>
@@ -147,9 +138,9 @@ export class SvResistivePage extends LitElement {
         <h3>Interpolation method</h3>
         <sl-select
           size="small"
-          value=${local.kind}
-          @sl-change=${(e) => this._edit(n, "kind", e.target.value)}
           class="method"
+          .value=${local.kind}
+          @sl-change=${(e) => this._edit(n, "kind", e.target.value)}
         >
           ${(sensor.kind_options || []).map(
             (opt) => html`<sl-option value=${opt}>${opt}</sl-option>`,
@@ -163,7 +154,7 @@ export class SvResistivePage extends LitElement {
             size="small"
             step="any"
             label="Min resistance (Ω)"
-            value=${local.min_r}
+            .value=${local.min_r}
             @sl-input=${(e) => this._edit(n, "min_r", e.target.value)}
           ></sl-input>
           <sl-input
@@ -171,7 +162,7 @@ export class SvResistivePage extends LitElement {
             size="small"
             step="any"
             label="Max resistance (Ω)"
-            value=${local.max_r}
+            .value=${local.max_r}
             @sl-input=${(e) => this._edit(n, "max_r", e.target.value)}
           ></sl-input>
           <sl-input
@@ -179,7 +170,7 @@ export class SvResistivePage extends LitElement {
             size="small"
             step="any"
             label="Open-circuit threshold (V)"
-            value=${local.threshold}
+            .value=${local.threshold}
             @sl-input=${(e) => this._edit(n, "threshold", e.target.value)}
           ></sl-input>
         </div>
@@ -201,7 +192,7 @@ export class SvResistivePage extends LitElement {
               >`
             : null}
         </div>
-      </section>
+      </sl-card>
     `;
   }
 
@@ -262,8 +253,6 @@ export class SvResistivePage extends LitElement {
     );
   }
 
-  // Persist every field that differs from the saved snapshot. Each field
-  // keeps its own endpoint; we fan out concurrently and report one result.
   async _save(n) {
     const local = this._local[n];
     const saved = this._saved[n];
@@ -322,6 +311,7 @@ export class SvResistivePage extends LitElement {
     tokens,
     baseFont,
     widgets,
+    slCard,
     css`
       .points {
         display: flex;
@@ -335,7 +325,7 @@ export class SvResistivePage extends LitElement {
         gap: 8px;
       }
       .point-row sl-input {
-        width: 120px;
+        width: 130px;
       }
       .method {
         max-width: 280px;
@@ -343,21 +333,21 @@ export class SvResistivePage extends LitElement {
       .limits {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 12px;
+        gap: 14px;
       }
       .save-bar {
         display: flex;
         align-items: center;
         gap: 14px;
-        margin-top: 20px;
+        margin-top: 22px;
         flex-wrap: wrap;
       }
       .save-bar .status {
         flex: 1;
-        min-width: 200px;
+        min-width: 220px;
       }
-      sl-alert::part(base) {
-        padding: 6px 12px;
+      .save-bar .status::part(base) {
+        padding: 8px 14px;
       }
     `,
   ];

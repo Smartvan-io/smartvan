@@ -1,5 +1,6 @@
 import { LitElement, html, css } from "lit";
 import { tokens, baseFont, widgets } from "./sv-shared.js";
+import { slCard } from "./sv-shoelace.js";
 
 export class SvDeviceUnknownPage extends LitElement {
   static properties = {
@@ -14,8 +15,8 @@ export class SvDeviceUnknownPage extends LitElement {
   render() {
     const d = this.device || {};
     return html`
-      <section class="card">
-        <div class="card-header"><h2>Calibration not available</h2></div>
+      <sl-card>
+        <div slot="header"><h2>Calibration not available</h2></div>
         <p>
           This device is connected and recognised by SmartVan.io, but its model
           doesn't have a calibration page in this version of the add-on.
@@ -49,7 +50,7 @@ export class SvDeviceUnknownPage extends LitElement {
             / max resistance, open-circuit threshold.
           </li>
         </ul>
-      </section>
+      </sl-card>
     `;
   }
 
@@ -57,6 +58,7 @@ export class SvDeviceUnknownPage extends LitElement {
     tokens,
     baseFont,
     widgets,
+    slCard,
     css`
       code {
         background: var(--sv-input);
