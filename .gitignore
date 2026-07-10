@@ -6,3 +6,6 @@ __pycache__/
 venv/
 smartvanio/frontend/node_modules/
 smartvanio/ui/static/bundle.js
+smartvanio/frontend/dev/dev-bundle.js
+smartvanio/frontend/dev/dev-bundle.js.map
+smartvanio/frontend/dev/shots/

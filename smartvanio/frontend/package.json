@@ -5,14 +5,20 @@
   "private": true,
   "scripts": {
     "dev": "rollup -c -w --bundleConfigAsCjs --inlineDynamicImports",
-    "build": "rollup -c --bundleConfigAsCjs --inlineDynamicImports"
+    "build": "rollup -c --bundleConfigAsCjs --inlineDynamicImports",
+    "dev:ui": "rollup -c rollup.dev.config.js -w",
+    "build:dev": "rollup -c rollup.dev.config.js",
+    "shoot": "node dev/shoot.mjs"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^28.0.0",
     "@rollup/plugin-node-resolve": "^16.0.0",
     "@rollup/plugin-replace": "^6.0.3",
     "@rollup/plugin-terser": "^0.4.0",
-    "rollup": "^4.0.0"
+    "playwright": "^1.61.1",
+    "rollup": "^4.0.0",
+    "rollup-plugin-livereload": "^2.0.5",
+    "rollup-plugin-serve": "^3.0.0"
   },
   "dependencies": {
     "@shoelace-style/shoelace": "^2.20.1",
