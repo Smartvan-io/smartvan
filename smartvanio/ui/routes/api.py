@@ -29,7 +29,7 @@ def _device_or_404(device_id: str):
     ha = get_client()
     device = ha.get_device(device_id)
     if device is None:
-        abort(404)
+        abort(404, description=f"unknown device {device_id!r} — is it online?")
     return ha, device
 
 
@@ -52,6 +52,9 @@ def _fail(message: str, status: int = 400, **extra):
 
 
 _INTERPOLATION_KINDS = ["linear", "quadratic", "cubic", "smooth"]
+
+# ESPHome's text component and HA's state string both cap at 255 chars.
+MAX_POINTS_PAYLOAD = 255
 
 
 @bp.get("/device/<device_id>")
@@ -230,7 +233,7 @@ def set_orientation(device_id: str):
 @bp.post("/device/<device_id>/inclinometer/<axis>-compensation")
 def set_compensation(device_id: str, axis: str):
     if axis not in ("pitch", "roll"):
-        abort(404)
+        abort(404, description=f"unknown axis {axis!r}")
     ha, _ = _device_or_404(device_id)
     entity_id = _entity_or_400(ha, device_id, f"{axis}_adjustment_angle")
 
@@ -262,7 +265,7 @@ def set_compensation(device_id: str, axis: str):
 @bp.post("/device/<device_id>/inclinometer/<action>-<axis>")
 def press_calibration_button(device_id: str, action: str, axis: str):
     if axis not in ("pitch", "roll"):
-        abort(404)
+        abort(404, description=f"unknown axis {axis!r}")
     if action == "calibrate":
         channel = f"calibrate_{axis}"
         label = f"calibrated {axis}"
@@ -270,7 +273,7 @@ def press_calibration_button(device_id: str, action: str, axis: str):
         channel = f"reset_{axis}_calibration"
         label = f"reset {axis} calibration"
     else:
-        abort(404)
+        abort(404, description=f"unknown action {action!r}")
 
     ha, _ = _device_or_404(device_id)
     entity_id = _entity_or_400(ha, device_id, channel)
@@ -305,7 +308,14 @@ def points_save(device_id: str, n: int):
             continue
     cleaned.sort(key=lambda x: x[0])
 
-    payload = json.dumps(cleaned)
+    # Compact separators: the device (and HA's state string) cap this at
+    # 255 chars, and dropping ", " for "," buys roughly six more points.
+    payload = json.dumps(cleaned, separators=(",", ":"))
+    if len(payload) > MAX_POINTS_PAYLOAD:
+        return _fail(
+            f"too many points to store — {len(payload)} characters, "
+            f"the device holds {MAX_POINTS_PAYLOAD}. Remove a few points."
+        )
     try:
         ha.call_service(
             "text",
@@ -334,7 +344,7 @@ def set_resistive_number_or_select(device_id: str, n: int, field: str):
     }
     spec = field_to_channel_and_kind.get(field)
     if spec is None:
-        abort(404)
+        abort(404, description=f"unknown field {field!r}")
     channel, kind = spec
 
     ha, _ = _device_or_404(device_id)
@@ -399,7 +409,7 @@ def _read_value(req):
 def led_rename_strip(device_id: str, n: int):
     """Rename the LED-strip light entity via the HA entity registry."""
     if n not in (1, 2, 3, 4):
-        abort(404)
+        abort(404, description=f"unknown LED strip {n}")
     ha, _ = _device_or_404(device_id)
     entity_id = _entity_or_400(ha, device_id, f"led_strip_{n}")
 
@@ -426,7 +436,7 @@ def led_set_num_leds(device_id: str, n: int):
     the form just shows "saved — device will reboot".
     """
     if n not in (1, 2, 3, 4):
-        abort(404)
+        abort(404, description=f"unknown LED strip {n}")
     ha, _ = _device_or_404(device_id)
 
     body = request.json or {}

@@ -49,6 +49,9 @@ export class SvDeviceList extends LitElement {
       .grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        /* Equal-height tiles: rows would otherwise size independently, so
+           a tile whose model tag wraps makes only its own row taller. */
+        grid-auto-rows: 1fr;
         gap: 14px;
       }
       .empty {

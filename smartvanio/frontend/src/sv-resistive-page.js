@@ -342,12 +342,17 @@ export class SvResistivePage extends LitElement {
         margin-top: 22px;
         flex-wrap: wrap;
       }
-      .save-bar .status {
-        flex: 1;
-        min-width: 220px;
-      }
+      /* sl-alert's :host is display:contents, so the flex item is the base
+         part — sizing rules must target it, not .status. Shoelace also puts
+         the alert's padding on the message part, which is why padding base
+         alone left it ~60px tall next to a 40px button. */
       .save-bar .status::part(base) {
-        padding: 8px 14px;
+        min-height: var(--sl-input-height-medium, 2.5rem);
+        align-items: center;
+        padding: 0;
+      }
+      .save-bar .status::part(message) {
+        padding: 0 14px;
       }
     `,
   ];

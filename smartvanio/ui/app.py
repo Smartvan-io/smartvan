@@ -8,6 +8,7 @@ import os
 import requests
 from flask import Flask, jsonify, request
 from flask_sock import Sock
+from werkzeug.exceptions import HTTPException
 
 from .ha_client import get_client
 from .routes import api, pages, ws
@@ -57,6 +58,23 @@ def create_app() -> Flask:
     # Touch the singleton so the persistent HA WS greenlet starts as
     # part of app construction, not lazily on first request.
     get_client()
+
+    @app.errorhandler(HTTPException)
+    def _json_errors(exc: HTTPException):
+        """Return API errors as JSON.
+
+        Flask's default error pages are HTML, which the frontend's
+        postJson() can't parse — it falls back to a bare "HTTP 400" and
+        the actual reason (e.g. "unknown channel ...") never reaches the
+        user. Only /api paths are converted; page routes keep the
+        standard HTML pages.
+        """
+        if not request.path.startswith("/api/"):
+            return exc
+        return (
+            jsonify({"ok": False, "message": exc.description or exc.name}),
+            exc.code or 500,
+        )
 
     @app.get("/healthz")
     def healthz():

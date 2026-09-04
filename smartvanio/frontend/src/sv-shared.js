@@ -193,6 +193,17 @@ export const widgets = css`
   }
 `;
 
+// Which calibration page a model routes to. Mirrors _model_kind() in
+// ui/routes/api.py — keep the two in step, since the backend decides
+// what `model_kind` the detail view actually receives.
+export function deviceKind(model) {
+  const m = (model || "").toLowerCase();
+  if (m.includes("inclinometer")) return "inclinometer";
+  if (m.includes("resistive") || m.includes("tank")) return "resistive";
+  if (m.includes("led")) return "led";
+  return "unknown";
+}
+
 // Tile container styles. Mirrors the visual contract of the main
 // card's `sharedTileStyles` at
 // /Users/james/Projects/smartvan.io/smartvan.io-cards/main-card/src/smartvanio-shared.js

@@ -7,7 +7,7 @@
 // ever needs the same tile, extract these bits into a shared package.
 
 import { LitElement, html, css, svg } from "lit";
-import { tokens, baseFont, tileFrame } from "./sv-shared.js";
+import { tokens, baseFont, tileFrame, deviceKind } from "./sv-shared.js";
 import "./sv-shoelace.js";
 
 // MDI icon paths (24x24 viewBox). Inlined to avoid pulling @mdi/js for
@@ -47,26 +47,38 @@ export class SvDeviceTile extends LitElement {
 
   render() {
     const d = this.device || {};
+    // Models with no calibration page used to navigate to a dead-end
+    // "Calibration not available" screen. Say so on the tile instead and
+    // don't offer the link at all.
+    const calibratable = deviceKind(d.model) !== "unknown";
+    return calibratable
+      ? html`
+          <button class="tile" type="button" @click=${this._onClick}>
+            ${this._body(d, true)}
+            <span class="chevron muted" aria-hidden="true">
+              ${svg`<svg viewBox="0 0 24 24" width="18" height="18"><path d="M8.59,16.59L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.59Z" fill="currentColor"/></svg>`}
+            </span>
+          </button>
+        `
+      : html`<div class="tile static">${this._body(d, false)}</div>`;
+  }
+
+  _body(d, calibratable) {
     const path = iconForModel(d.model);
     return html`
-      <button class="tile" type="button" @click=${this._onClick}>
-        <span class="icon" aria-hidden="true">
-          ${svg`<svg viewBox="0 0 24 24" width="24" height="24"><path d=${path} fill="currentColor"/></svg>`}
+      <span class="icon" aria-hidden="true">
+        ${svg`<svg viewBox="0 0 24 24" width="24" height="24"><path d=${path} fill="currentColor"/></svg>`}
+      </span>
+      <span class="body">
+        <span class="name">${d.name || d.device_id || "Device"}</span>
+        <span class="meta">
+          ${d.model ? html`<sl-tag size="small" pill>${d.model}</sl-tag>` : null}
+          ${d.sw_version ? html`<span class="muted">fw ${d.sw_version}</span>` : null}
         </span>
-        <span class="body">
-          <span class="name">${d.name || d.device_id || "Device"}</span>
-          <span class="meta">
-            ${d.model
-              ? html`<sl-tag size="small" pill>${d.model}</sl-tag>`
-              : null}
-            ${d.sw_version ? html`<span class="muted">fw ${d.sw_version}</span>` : null}
-          </span>
-          <span class="id muted">${d.device_id || ""}</span>
+        <span class="id muted">
+          ${d.device_id || ""}${calibratable ? "" : " · No calibration"}
         </span>
-        <span class="chevron muted" aria-hidden="true">
-          ${svg`<svg viewBox="0 0 24 24" width="18" height="18"><path d="M8.59,16.59L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.59Z" fill="currentColor"/></svg>`}
-        </span>
-      </button>
+      </span>
     `;
   }
 
@@ -88,11 +100,22 @@ export class SvDeviceTile extends LitElement {
     baseFont,
     tileFrame,
     css`
+      /* Stretch to the grid row height so every tile in a row matches,
+         regardless of whether the model tag wraps to a second line. */
       :host {
-        display: block;
+        display: flex;
       }
       .tile {
+        flex: 1;
         flex-direction: row;
+      }
+      /* Non-calibratable tiles are informational, not links. */
+      .tile.static {
+        cursor: default;
+      }
+      .tile.static:hover {
+        background: var(--sv-card);
+        border-color: var(--sv-border);
       }
       .icon {
         flex-shrink: 0;
